@@ -571,7 +571,7 @@ GRANT ALL ON SCHEMA regress_pgfdw_plus TO regress_pgfdw_local_normal4;
 -- Allow these non-superusers to use server pgfdw_plus_loopback1.
 GRANT ALL ON FOREIGN SERVER pgfdw_plus_loopback1 TO regress_pgfdw_local_normal1;
 GRANT ALL ON FOREIGN SERVER pgfdw_plus_loopback1 TO regress_pgfdw_local_normal4;
--- Allow these non-superusers to readd and write xact_commits in
+-- Allow these non-superusers to read and write xact_commits in
 -- pgfdw_plus_vacuum_xact_commits().
 GRANT ALL ON SCHEMA pgfdw_plus TO regress_pgfdw_local_normal1;
 GRANT ALL ON TABLE pgfdw_plus.xact_commits TO regress_pgfdw_local_normal1;
