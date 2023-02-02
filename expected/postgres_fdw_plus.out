@@ -107,7 +107,8 @@ SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
             2
-(1 row)
+            2
+(2 rows)
 
 -- ROLLBACK command on local transaction causes foreign transactions to
 -- be rollbacked without using two phase commit protocol.
@@ -139,7 +140,9 @@ SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
             2
-(1 row)
+            2
+            2
+(3 rows)
 
 -- Failure of prepare phase on one of foreign servers causes
 -- all transactions to be rollbacked.
@@ -181,7 +184,10 @@ SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
             2
-(1 row)
+            2
+            2
+            2
+(4 rows)
 
 -- Failure of prepare phase on the other foreign server causes
 -- all transactions to be rollbacked.
@@ -223,101 +229,26 @@ SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
             2
-(1 row)
-
--- two_phase_commit = on causes read-only foreign transactions to
--- be committed without using two phase commit protocol.
-BEGIN;
-SELECT count(*) FROM t0;
- count 
--------
-     1
-(1 row)
-
-SELECT count(*) FROM ft1;
- count 
--------
-     1
-(1 row)
-
-SELECT count(*) FROM ft2;
- count 
--------
-     1
-(1 row)
-
-COMMIT;
-SELECT split_part(query, '_', 1) FROM pg_stat_activity
-    WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
-     split_part     
---------------------
- COMMIT TRANSACTION
- COMMIT TRANSACTION
-(2 rows)
-
-SELECT * FROM pg_prepared_xacts;
- transaction | gid | prepared | owner | database 
--------------+-----+----------+-------+----------
-(0 rows)
-
-SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
- array_length 
---------------
             2
-(1 row)
-
--- two_phase_commit = on causes only write foreign transaction to
--- be committed via two phase commit protocol.
-BEGIN;
-INSERT INTO t0 VALUES (140);
-INSERT INTO ft1 VALUES (140);
-SELECT count(*) FROM ft2;
- count 
--------
-     1
-(1 row)
-
-COMMIT;
-SELECT split_part(query, '_', 1) FROM pg_stat_activity
-    WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
-       split_part       
-------------------------
- COMMIT PREPARED 'pgfdw
- COMMIT TRANSACTION
-(2 rows)
-
-SELECT * FROM pg_prepared_xacts;
- transaction | gid | prepared | owner | database 
--------------+-----+----------+-------+----------
-(0 rows)
-
-SELECT count(*) FROM ftv WHERE c1 = 140;
- count 
--------
-     2
-(1 row)
-
-SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
- array_length 
---------------
             2
-            1
-(2 rows)
+            2
+            2
+(5 rows)
 
--- two_phase_commit = always causes even read-only foreign transactions
+-- two_phase_commit = on causes even read-only foreign transactions
 -- to be committed via two phase commit protocol.
-SET postgres_fdw.two_phase_commit TO 'always';
+SET postgres_fdw.two_phase_commit TO on;
 BEGIN;
 SELECT count(*) FROM t0;
  count 
 -------
-     2
+     1
 (1 row)
 
 SELECT count(*) FROM ft1;
  count 
 -------
-     2
+     1
 (1 row)
 
 SELECT count(*) FROM ft2;
@@ -344,9 +275,12 @@ SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
             2
-            1
             2
-(3 rows)
+            2
+            2
+            2
+            2
+(6 rows)
 
 -- ===================================================================
 -- Test error cases of pgfdw_plus_foreign_prepared_xacts and
@@ -405,13 +339,13 @@ SELECT count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all();
 SELECT count(*) FROM pgfdw_plus.xact_commits;
  count 
 -------
-     3
+     6
 (1 row)
 
 SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
  count 
 -------
-     3
+     6
 (1 row)
 
 SELECT count(*) FROM pgfdw_plus.xact_commits;

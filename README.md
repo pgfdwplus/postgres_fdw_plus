@@ -64,11 +64,9 @@ you do using postgres_fdw.
 
 ## Configuration parameters
 
-### postgres_fdw.two_phase_commit (enum)
-If true, only foreign transactions writing data on remote servers are
-committed by using two phase commit protocol (2PC). 2PC is not used
-for read-only foreign transactions. If always, all foreign transactions
-including even read-only ones are committed via 2PC.
+### postgres_fdw.two_phase_commit (boolean)
+If true, all foreign transactions are committed by using
+two-phase commit protocol (2PC).
 If false (default), all foreign transactions are committed as
 postgres_fdw currently does, i.e., 2PC is not used at all.
 

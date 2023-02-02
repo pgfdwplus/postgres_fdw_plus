@@ -147,34 +147,9 @@ SELECT * FROM pg_prepared_xacts;
 SELECT count(*) FROM ftv WHERE c1 = 130;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
 
--- two_phase_commit = on causes read-only foreign transactions to
--- be committed without using two phase commit protocol.
-BEGIN;
-SELECT count(*) FROM t0;
-SELECT count(*) FROM ft1;
-SELECT count(*) FROM ft2;
-COMMIT;
-SELECT split_part(query, '_', 1) FROM pg_stat_activity
-    WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
-SELECT * FROM pg_prepared_xacts;
-SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
-
--- two_phase_commit = on causes only write foreign transaction to
--- be committed via two phase commit protocol.
-BEGIN;
-INSERT INTO t0 VALUES (140);
-INSERT INTO ft1 VALUES (140);
-SELECT count(*) FROM ft2;
-COMMIT;
-SELECT split_part(query, '_', 1) FROM pg_stat_activity
-    WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
-SELECT * FROM pg_prepared_xacts;
-SELECT count(*) FROM ftv WHERE c1 = 140;
-SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
-
--- two_phase_commit = always causes even read-only foreign transactions
+-- two_phase_commit = on causes even read-only foreign transactions
 -- to be committed via two phase commit protocol.
-SET postgres_fdw.two_phase_commit TO 'always';
+SET postgres_fdw.two_phase_commit TO on;
 BEGIN;
 SELECT count(*) FROM t0;
 SELECT count(*) FROM ft1;

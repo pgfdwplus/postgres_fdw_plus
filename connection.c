@@ -71,8 +71,6 @@ typedef struct ConnCacheEntry
 	bool		keep_connections;	/* setting value of keep_connections
 									 * server option */
 	Oid			serverid;		/* foreign server OID used to get server name */
-	bool		modified;		/* true if foreign table on foriegn server was
-								 * modified */
 	TimestampTz	endtime;	/* timestamp when to assume the connection
 							 * is dead */
 	uint32		server_hashvalue;	/* hash value of foreign server OID */
@@ -158,14 +156,9 @@ static void pgfdw_insert_xact_commits(List *umids);
  *
  * If state is not NULL, *state receives the per-connection state associated
  * with the PGconn.
- *
- * If modified is true, this connection entry is marked as modified.
- * This information is used to determine whether two-phase commit
- * protocol is necessary to complete all the foreign transactions.
  */
 PGconn *
-GetConnection(UserMapping *user, bool will_prep_stmt, PgFdwConnState **state,
-			  bool modified)
+GetConnection(UserMapping *user, bool will_prep_stmt, PgFdwConnState **state)
 {
 	bool		found;
 	bool		retry = false;
@@ -317,13 +310,6 @@ GetConnection(UserMapping *user, bool will_prep_stmt, PgFdwConnState **state,
 	if (state)
 		*state = &entry->state;
 
-	/*
-	 * Mark this connection entry as modified if a foreign table will be
-	 * modified via the connection
-	 */
-	if (modified)
-		entry->modified = true;
-
 	return entry->conn;
 }
 
@@ -347,7 +333,6 @@ make_new_connection(ConnCacheEntry *entry, UserMapping *user)
 	entry->changing_xact_state = false;
 	entry->invalidated = false;
 	entry->serverid = server->serverid;
-	entry->modified = false;
 	entry->server_hashvalue =
 		GetSysCacheHashValue1(FOREIGNSERVEROID,
 							  ObjectIdGetDatum(server->serverid));
@@ -1005,9 +990,7 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					 */
 					pgfdw_reject_incomplete_xact_state_change(entry);
 
-					if (pgfdw_two_phase_commit == PGFDW_2PC_ALWAYS ||
-						(pgfdw_two_phase_commit == PGFDW_2PC_ON &&
-						 entry->modified))
+					if (pgfdw_two_phase_commit)
 					{
 						pgfdw_prepare_xacts(entry, &pending_entries_prepare);
 						if (pgfdw_track_xact_commits)
@@ -1090,7 +1073,6 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		/* Reset state to show we're out of a transaction */
 		entry->xact_depth = 0;
 		entry->fxid = InvalidFullTransactionId;
-		entry->modified = false;
 		pgfdw_reset_xact_state(entry, true);
 	}
 
@@ -2050,8 +2032,7 @@ pgfdw_commit_prepared(ConnCacheEntry *entry,
 	if (!FullTransactionIdIsValid(entry->fxid))
 		return;
 
-	Assert(pgfdw_two_phase_commit == PGFDW_2PC_ALWAYS ||
-		   (pgfdw_two_phase_commit == PGFDW_2PC_ON && entry->modified));
+	Assert(pgfdw_two_phase_commit);
 
 	if (!pgfdw_skip_commit_phase)
 	{
@@ -2112,8 +2093,7 @@ pgfdw_rollback_prepared(ConnCacheEntry *entry)
 	if (!FullTransactionIdIsValid(entry->fxid))
 		return false;
 
-	Assert(pgfdw_two_phase_commit == PGFDW_2PC_ALWAYS ||
-		   (pgfdw_two_phase_commit == PGFDW_2PC_ON && entry->modified));
+	Assert(pgfdw_two_phase_commit);
 
 	if (!pgfdw_skip_commit_phase)
 	{
