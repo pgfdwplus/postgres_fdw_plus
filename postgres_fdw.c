@@ -1531,7 +1531,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(user, false, &fsstate->conn_state);
+	fsstate->conn = GetConnection(user, false, &fsstate->conn_state, false);
 
 	/* Assign a unique ID for my cursor */
 	fsstate->cursor_number = GetCursorNumber(fsstate->conn);
@@ -2662,7 +2662,7 @@ postgresBeginDirectModify(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	dmstate->conn = GetConnection(user, false, &dmstate->conn_state);
+	dmstate->conn = GetConnection(user, false, &dmstate->conn_state, true);
 
 	/* Update the foreign-join-related fields. */
 	if (fsplan->scan.scanrelid == 0)
@@ -3037,7 +3037,7 @@ postgresExecForeignTruncate(List *rels,
 	 * establish new connection if necessary.
 	 */
 	user = GetUserMapping(GetUserId(), serverid);
-	conn = GetConnection(user, false, NULL);
+	conn = GetConnection(user, false, NULL, true);
 
 	/* Construct the TRUNCATE command string */
 	initStringInfo(&sql);
@@ -3138,7 +3138,7 @@ estimate_path_cost_size(PlannerInfo *root,
 								false, &retrieved_attrs, NULL);
 
 		/* Get the remote estimate */
-		conn = GetConnection(fpinfo->user, false, NULL);
+		conn = GetConnection(fpinfo->user, false, NULL, false);
 		get_remote_estimate(sql.data, conn, &rows, &width,
 							&startup_cost, &total_cost);
 		ReleaseConnection(conn);
@@ -3976,7 +3976,7 @@ create_foreign_modify(EState *estate,
 	user = GetUserMapping(userid, table->serverid);
 
 	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(user, true, &fmstate->conn_state);
+	fmstate->conn = GetConnection(user, true, &fmstate->conn_state, true);
 	fmstate->p_name = NULL;		/* prepared statement not made yet */
 
 	/* Set up remote query information. */
@@ -4936,7 +4936,7 @@ postgresAnalyzeForeignTable(Relation relation,
 	 */
 	table = GetForeignTable(RelationGetRelid(relation));
 	user = GetUserMapping(relation->rd_rel->relowner, table->serverid);
-	conn = GetConnection(user, false, NULL);
+	conn = GetConnection(user, false, NULL, false);
 
 	/*
 	 * Construct command to get page count for relation.
@@ -5022,7 +5022,7 @@ postgresAcquireSampleRowsFunc(Relation relation, int elevel,
 	table = GetForeignTable(RelationGetRelid(relation));
 	server = GetForeignServer(table->serverid);
 	user = GetUserMapping(relation->rd_rel->relowner, table->serverid);
-	conn = GetConnection(user, false, NULL);
+	conn = GetConnection(user, false, NULL, false);
 
 	/*
 	 * Construct cursor that retrieves whole rows from remote.
@@ -5253,7 +5253,7 @@ postgresImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	 */
 	server = GetForeignServer(serverOid);
 	mapping = GetUserMapping(GetUserId(), server->serverid);
-	conn = GetConnection(mapping, false, NULL);
+	conn = GetConnection(mapping, false, NULL, false);
 
 	/* Don't attempt to import collation if remote server hasn't got it */
 	if (PQserverVersion(conn) < 90100)

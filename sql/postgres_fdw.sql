@@ -2,7 +2,7 @@
 -- create FDW objects
 -- ===================================================================
 
-CREATE EXTENSION postgres_fdw;
+CREATE EXTENSION postgres_fdw_plus;
 
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw;
 DO $d$
@@ -396,9 +396,9 @@ EXPLAIN (VERBOSE, COSTS OFF)
 SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2 order by t1.c2 limit 1;
 
 -- but let's put them in an extension ...
-ALTER EXTENSION postgres_fdw ADD FUNCTION postgres_fdw_abs(int);
-ALTER EXTENSION postgres_fdw ADD OPERATOR === (int, int);
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER EXTENSION postgres_fdw_plus ADD FUNCTION postgres_fdw_abs(int);
+ALTER EXTENSION postgres_fdw_plus ADD OPERATOR === (int, int);
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 
 -- ... now they can be shipped
 EXPLAIN (VERBOSE, COSTS OFF)
@@ -557,7 +557,7 @@ ALTER SERVER loopback OPTIONS (DROP extensions);
 -- full outer join + WHERE clause with shippable extensions not set
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT t1.c1, t2.c2, t1.c3 FROM ft1 t1 FULL JOIN ft2 t2 ON (t1.c1 = t2.c1) WHERE postgres_fdw_abs(t1.c1) > 0 OFFSET 10 LIMIT 10;
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 -- join two tables with FOR UPDATE clause
 -- tests whole-row reference for row marks
 EXPLAIN (VERBOSE, COSTS OFF)
@@ -844,9 +844,9 @@ explain (verbose, costs off)
 select c2, least_agg(c1) from ft1 group by c2 order by c2;
 
 -- Add function and aggregate into extension
-alter extension postgres_fdw add function least_accum(anyelement, variadic anyarray);
-alter extension postgres_fdw add aggregate least_agg(variadic items anyarray);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus add function least_accum(anyelement, variadic anyarray);
+alter extension postgres_fdw_plus add aggregate least_agg(variadic items anyarray);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 
 -- Now aggregate will be pushed.  Aggregate will display VARIADIC argument.
 explain (verbose, costs off)
@@ -854,9 +854,9 @@ select c2, least_agg(c1) from ft1 where c2 < 100 group by c2 order by c2;
 select c2, least_agg(c1) from ft1 where c2 < 100 group by c2 order by c2;
 
 -- Remove function and aggregate from extension
-alter extension postgres_fdw drop function least_accum(anyelement, variadic anyarray);
-alter extension postgres_fdw drop aggregate least_agg(variadic items anyarray);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus drop function least_accum(anyelement, variadic anyarray);
+alter extension postgres_fdw_plus drop aggregate least_agg(variadic items anyarray);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 
 -- Not pushed down as we have dropped objects from extension.
 explain (verbose, costs off)
@@ -915,13 +915,13 @@ select * from ft2 order by c1 using operator(public.<^);
 ANALYZE ft2;
 
 -- Add into extension
-alter extension postgres_fdw add operator class my_op_class using btree;
-alter extension postgres_fdw add function my_op_cmp(a int, b int);
-alter extension postgres_fdw add operator family my_op_family using btree;
-alter extension postgres_fdw add operator public.<^(int, int);
-alter extension postgres_fdw add operator public.=^(int, int);
-alter extension postgres_fdw add operator public.>^(int, int);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus add operator class my_op_class using btree;
+alter extension postgres_fdw_plus add function my_op_cmp(a int, b int);
+alter extension postgres_fdw_plus add operator family my_op_family using btree;
+alter extension postgres_fdw_plus add operator public.<^(int, int);
+alter extension postgres_fdw_plus add operator public.=^(int, int);
+alter extension postgres_fdw_plus add operator public.>^(int, int);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 
 -- Now this will be pushed as sort operator is part of the extension.
 explain (verbose, costs off)
@@ -933,13 +933,13 @@ explain (verbose, costs off)
 select * from ft2 order by c1 using operator(public.<^);
 
 -- Remove from extension
-alter extension postgres_fdw drop operator class my_op_class using btree;
-alter extension postgres_fdw drop function my_op_cmp(a int, b int);
-alter extension postgres_fdw drop operator family my_op_family using btree;
-alter extension postgres_fdw drop operator public.<^(int, int);
-alter extension postgres_fdw drop operator public.=^(int, int);
-alter extension postgres_fdw drop operator public.>^(int, int);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus drop operator class my_op_class using btree;
+alter extension postgres_fdw_plus drop function my_op_cmp(a int, b int);
+alter extension postgres_fdw_plus drop operator family my_op_family using btree;
+alter extension postgres_fdw_plus drop operator public.<^(int, int);
+alter extension postgres_fdw_plus drop operator public.=^(int, int);
+alter extension postgres_fdw_plus drop operator public.>^(int, int);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 
 -- This will not be pushed as sort operator is now removed from the extension.
 explain (verbose, costs off)
@@ -1106,7 +1106,7 @@ EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st8;
 ALTER SERVER loopback OPTIONS (DROP extensions);
 EXPLAIN (VERBOSE, COSTS OFF) EXECUTE st8;
 EXECUTE st8;
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 
 -- cleanup
 DEALLOCATE st1;
@@ -1353,7 +1353,7 @@ DELETE FROM ft2
   WHERE ft2.c1 > 2000 AND ft2.c2 = ft4.c1
   RETURNING ft2.c1, ft2.c2, ft2.c3;
 DELETE FROM ft2 WHERE ft2.c1 > 2000;
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 
 -- Test that trigger on remote table works as expected
 CREATE OR REPLACE FUNCTION "S 1".F_BRTRIG() RETURNS trigger AS $$

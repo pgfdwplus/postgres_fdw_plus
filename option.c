@@ -50,6 +50,27 @@ static PQconninfoOption *libpq_options;
  * GUC parameters
  */
 char	   *pgfdw_application_name = NULL;
+int			pgfdw_two_phase_commit = false;
+bool		pgfdw_skip_commit_phase = false;
+bool		pgfdw_track_xact_commits = true;
+
+/*
+ * Although only "off", "on", "always" are documented, we accept all the likely
+ * variants of "off" and "on".
+ */
+static const struct config_enum_entry pgfdw_2pc_mode_options[] =
+{
+	{"off", PGFDW_2PC_OFF, false},
+	{"on", PGFDW_2PC_ON, false},
+	{"always", PGFDW_2PC_ALWAYS, false},
+	{"false", PGFDW_2PC_OFF, false},
+	{"true", PGFDW_2PC_ON, false},
+	{"no", PGFDW_2PC_OFF, false},
+	{"yes", PGFDW_2PC_ON, false},
+	{"0", PGFDW_2PC_OFF, false},
+	{"1", PGFDW_2PC_ON, false},
+	{NULL, 0, false}
+};
 
 void		_PG_init(void);
 
@@ -539,6 +560,40 @@ _PG_init(void)
 							   NULL,
 							   NULL,
 							   NULL);
+
+	DefineCustomEnumVariable("postgres_fdw.two_phase_commit",
+							 "Uses two phase commit to commit foreign transactions.",
+							 NULL,
+							 &pgfdw_two_phase_commit,
+							 PGFDW_2PC_OFF,
+							 pgfdw_2pc_mode_options,
+							 PGC_USERSET,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
+
+	DefineCustomBoolVariable("postgres_fdw.skip_commit_phase",
+							 "Performs only prepare phase in two phase commit.",
+							 NULL,
+							 &pgfdw_skip_commit_phase,
+							 false,
+							 PGC_USERSET,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
+
+	DefineCustomBoolVariable("postgres_fdw.track_xact_commits",
+							 "Collects transaction commits information.",
+							 NULL,
+							 &pgfdw_track_xact_commits,
+							 true,
+							 PGC_USERSET,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
 
 	MarkGUCPrefixReserved("postgres_fdw");
 }

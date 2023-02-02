@@ -1,0 +1,5 @@
+# postgres_fdw_plus extension
+comment = 'foreign-data wrapper for remote PostgreSQL servers, supporting global transaction'
+default_version = '1.0'
+module_pathname = '$libdir/postgres_fdw_plus'
+relocatable = true

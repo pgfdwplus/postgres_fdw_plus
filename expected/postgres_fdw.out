@@ -1,7 +1,7 @@
 -- ===================================================================
 -- create FDW objects
 -- ===================================================================
-CREATE EXTENSION postgres_fdw;
+CREATE EXTENSION postgres_fdw_plus;
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER postgres_fdw;
 DO $d$
     BEGIN
@@ -1021,9 +1021,9 @@ SELECT * FROM ft1 t1 WHERE t1.c1 === t1.c2 order by t1.c2 limit 1;
 (1 row)
 
 -- but let's put them in an extension ...
-ALTER EXTENSION postgres_fdw ADD FUNCTION postgres_fdw_abs(int);
-ALTER EXTENSION postgres_fdw ADD OPERATOR === (int, int);
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER EXTENSION postgres_fdw_plus ADD FUNCTION postgres_fdw_abs(int);
+ALTER EXTENSION postgres_fdw_plus ADD OPERATOR === (int, int);
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 -- ... now they can be shipped
 EXPLAIN (VERBOSE, COSTS OFF)
   SELECT count(c3) FROM ft1 t1 WHERE t1.c1 = postgres_fdw_abs(t1.c2);
@@ -1809,7 +1809,7 @@ SELECT t1.c1, t2.c2, t1.c3 FROM ft1 t1 FULL JOIN ft2 t2 ON (t1.c1 = t2.c1) WHERE
          Remote SQL: SELECT r1."C 1", r2.c2, r1.c3 FROM ("S 1"."T 1" r1 FULL JOIN "S 1"."T 1" r2 ON (((r1."C 1" = r2."C 1"))))
 (7 rows)
 
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 -- join two tables with FOR UPDATE clause
 -- tests whole-row reference for row marks
 EXPLAIN (VERBOSE, COSTS OFF)
@@ -3167,9 +3167,9 @@ select c2, least_agg(c1) from ft1 group by c2 order by c2;
 (6 rows)
 
 -- Add function and aggregate into extension
-alter extension postgres_fdw add function least_accum(anyelement, variadic anyarray);
-alter extension postgres_fdw add aggregate least_agg(variadic items anyarray);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus add function least_accum(anyelement, variadic anyarray);
+alter extension postgres_fdw_plus add aggregate least_agg(variadic items anyarray);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 -- Now aggregate will be pushed.  Aggregate will display VARIADIC argument.
 explain (verbose, costs off)
 select c2, least_agg(c1) from ft1 where c2 < 100 group by c2 order by c2;
@@ -3200,9 +3200,9 @@ select c2, least_agg(c1) from ft1 where c2 < 100 group by c2 order by c2;
 (10 rows)
 
 -- Remove function and aggregate from extension
-alter extension postgres_fdw drop function least_accum(anyelement, variadic anyarray);
-alter extension postgres_fdw drop aggregate least_agg(variadic items anyarray);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus drop function least_accum(anyelement, variadic anyarray);
+alter extension postgres_fdw_plus drop aggregate least_agg(variadic items anyarray);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 -- Not pushed down as we have dropped objects from extension.
 explain (verbose, costs off)
 select c2, least_agg(c1) from ft1 group by c2 order by c2;
@@ -3278,13 +3278,13 @@ select * from ft2 order by c1 using operator(public.<^);
 -- Update local stats on ft2
 ANALYZE ft2;
 -- Add into extension
-alter extension postgres_fdw add operator class my_op_class using btree;
-alter extension postgres_fdw add function my_op_cmp(a int, b int);
-alter extension postgres_fdw add operator family my_op_family using btree;
-alter extension postgres_fdw add operator public.<^(int, int);
-alter extension postgres_fdw add operator public.=^(int, int);
-alter extension postgres_fdw add operator public.>^(int, int);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus add operator class my_op_class using btree;
+alter extension postgres_fdw_plus add function my_op_cmp(a int, b int);
+alter extension postgres_fdw_plus add operator family my_op_family using btree;
+alter extension postgres_fdw_plus add operator public.<^(int, int);
+alter extension postgres_fdw_plus add operator public.=^(int, int);
+alter extension postgres_fdw_plus add operator public.>^(int, int);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 -- Now this will be pushed as sort operator is part of the extension.
 explain (verbose, costs off)
 select array_agg(c1 order by c1 using operator(public.<^)) from ft2 where c2 = 6 and c1 < 100 group by c2;
@@ -3313,13 +3313,13 @@ select * from ft2 order by c1 using operator(public.<^);
 (3 rows)
 
 -- Remove from extension
-alter extension postgres_fdw drop operator class my_op_class using btree;
-alter extension postgres_fdw drop function my_op_cmp(a int, b int);
-alter extension postgres_fdw drop operator family my_op_family using btree;
-alter extension postgres_fdw drop operator public.<^(int, int);
-alter extension postgres_fdw drop operator public.=^(int, int);
-alter extension postgres_fdw drop operator public.>^(int, int);
-alter server loopback options (set extensions 'postgres_fdw');
+alter extension postgres_fdw_plus drop operator class my_op_class using btree;
+alter extension postgres_fdw_plus drop function my_op_cmp(a int, b int);
+alter extension postgres_fdw_plus drop operator family my_op_family using btree;
+alter extension postgres_fdw_plus drop operator public.<^(int, int);
+alter extension postgres_fdw_plus drop operator public.=^(int, int);
+alter extension postgres_fdw_plus drop operator public.>^(int, int);
+alter server loopback options (set extensions 'postgres_fdw_plus');
 -- This will not be pushed as sort operator is now removed from the extension.
 explain (verbose, costs off)
 select array_agg(c1 order by c1 using operator(public.<^)) from ft2 where c2 = 6 and c1 < 100 group by c2;
@@ -4095,7 +4095,7 @@ EXECUTE st8;
      9
 (1 row)
 
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 -- cleanup
 DEALLOCATE st1;
 DEALLOCATE st2;
@@ -5844,7 +5844,7 @@ DELETE FROM ft2
 (1 row)
 
 DELETE FROM ft2 WHERE ft2.c1 > 2000;
-ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw');
+ALTER SERVER loopback OPTIONS (ADD extensions 'postgres_fdw_plus');
 -- Test that trigger on remote table works as expected
 CREATE OR REPLACE FUNCTION "S 1".F_BRTRIG() RETURNS trigger AS $$
 BEGIN
