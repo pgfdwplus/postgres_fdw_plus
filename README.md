@@ -1,7 +1,68 @@
 # postgres_fdw_plus
-postgres_fdw_plus is a fork of postgres_fdw contrib module included in PostgreSQL, and supports global transaction feature.
 
-## Configuration Parameters
+This extension is a fork of
+[postgres_fdw](https://www.postgresql.org/docs/devel/postgres-fdw.html)
+contrib module provided by PostgreSQL.
+It provides the same feature as postgres_fdw, and additionally aims to
+support global transaction feature on multiple foreign PostgreSQL servers
+(but currently it only allows us to use two-phase commit protocol
+when committing foreign transaction on them).
+
+The postgres_fdw_plus is released under
+the [PostgreSQL License](https://opensource.org/licenses/postgresql),
+a liberal Open Source license, similar to the BSD or MIT licenses.
+
+## Install
+
+Download the source archive of postgres_fdw_plus from
+[here](https://github.com/MasaoFujii/postgres_fdw_plus),
+and then build and install it. postgres_fdw_plus requires
+PostgreSQL 15 or later.
+
+```
+$ cd postgres_fdw_plus
+$ make USE_PGXS=1 PG_CONFIG=/opt/pgsql-X.Y.Z/bin/pg_config
+$ su
+# make USE_PGXS=1 PG_CONFIG=/opt/pgsql-X.Y.Z/bin/pg_config install
+# exit
+```
+
+USE_PGXS=1 must be always specified when building this extension.
+The path to [pg_config](https://www.postgresql.org/docs/devel/app-pgconfig.html)
+(which exists in the bin directory of PostgreSQL installation)
+needs be specified in PG_CONFIG.
+However, if the PATH environment variable contains the path to pg_config,
+PG_CONFIG doesn't need to be specified.
+
+## Prepare for remote access using postgres_fdw_plus
+
+1. Install the postgres_fdw_plus extension using CREATE EXTENSION.
+
+   ```
+   =# CREATE EXTENSION postgres_fdw_plus;
+   ```
+
+   Note that postgres_fdw or postgres_fdw_plus but not both can be installed
+   on the same database.
+
+2. Create a foreign server, a user mapping and a foreign table in the same way
+as you do when using postgres_fdw. For example,
+
+   ```
+   =# CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw;
+   =# CREATE USER MAPPING FOR public SERVER loopback;
+   =# CREATE FOREIGN TABLE ft (i int) SERVER loopback OPTIONS (table_name 't');
+   ```
+
+   Note that the foreign data wrapper that postgres_fdw_plus provides is
+   **postgres_fdw** not postgres_fdw_plus. That is, when creating a foreign
+   server, postgres_fdw must be specified as a foreign data wrapper.
+
+Then you can access and modify the data stored in remote servers
+using SELECT, INSERT, etc on the foreign tables, in the same way as
+you do using postgres_fdw.
+
+## Configuration parameters
 
 ### postgres_fdw.two_phase_commit (enum)
 If true, only foreign transactions writing data on remote servers are
