@@ -359,4 +359,29 @@ SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
 RESET postgres_fdw.two_phase_commit;
 RESET debug_discard_caches;
 
+-- ===================================================================
+-- Cleanup
+-- ===================================================================
+RESET ROLE;
+
+DROP OWNED BY regress_pgfdw_local_super1 CASCADE;
+DROP OWNED BY regress_pgfdw_local_super2 CASCADE;
+DROP OWNED BY regress_pgfdw_remote_super1 CASCADE;
+DROP OWNED BY regress_pgfdw_remote_super2 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal1 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal2 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal3 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal4 CASCADE;
+DROP OWNED BY regress_pgfdw_remote_normal1 CASCADE;
+
+DROP ROLE regress_pgfdw_local_super1;
+DROP ROLE regress_pgfdw_local_super2;
+DROP ROLE regress_pgfdw_remote_super1;
+DROP ROLE regress_pgfdw_remote_super2;
+DROP ROLE regress_pgfdw_local_normal1;
+DROP ROLE regress_pgfdw_local_normal2;
+DROP ROLE regress_pgfdw_local_normal3;
+DROP ROLE regress_pgfdw_local_normal4;
+DROP ROLE regress_pgfdw_remote_normal1;
+
 \unset SHOW_CONTEXT

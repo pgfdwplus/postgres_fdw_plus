@@ -675,4 +675,30 @@ DETAIL:  Error message: password is required
 -- ===================================================================
 RESET postgres_fdw.two_phase_commit;
 RESET debug_discard_caches;
+-- ===================================================================
+-- Cleanup
+-- ===================================================================
+RESET ROLE;
+DROP OWNED BY regress_pgfdw_local_super1 CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to user mapping for public on server pgfdw_plus_loopback1
+drop cascades to user mapping for regress_pgfdw_local_normal1 on server pgfdw_plus_loopback1
+drop cascades to user mapping for public on server pgfdw_plus_dummy_server
+DROP OWNED BY regress_pgfdw_local_super2 CASCADE;
+DROP OWNED BY regress_pgfdw_remote_super1 CASCADE;
+DROP OWNED BY regress_pgfdw_remote_super2 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal1 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal2 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal3 CASCADE;
+DROP OWNED BY regress_pgfdw_local_normal4 CASCADE;
+DROP OWNED BY regress_pgfdw_remote_normal1 CASCADE;
+DROP ROLE regress_pgfdw_local_super1;
+DROP ROLE regress_pgfdw_local_super2;
+DROP ROLE regress_pgfdw_remote_super1;
+DROP ROLE regress_pgfdw_remote_super2;
+DROP ROLE regress_pgfdw_local_normal1;
+DROP ROLE regress_pgfdw_local_normal2;
+DROP ROLE regress_pgfdw_local_normal3;
+DROP ROLE regress_pgfdw_local_normal4;
+DROP ROLE regress_pgfdw_remote_normal1;
 \unset SHOW_CONTEXT
