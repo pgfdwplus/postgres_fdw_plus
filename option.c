@@ -50,9 +50,6 @@ static PQconninfoOption *libpq_options;
  * GUC parameters
  */
 char	   *pgfdw_application_name = NULL;
-bool		pgfdw_two_phase_commit = false;
-bool		pgfdw_skip_commit_phase = false;
-bool		pgfdw_track_xact_commits = true;
 
 void		_PG_init(void);
 
@@ -543,38 +540,7 @@ _PG_init(void)
 							   NULL,
 							   NULL);
 
-	DefineCustomBoolVariable("postgres_fdw.two_phase_commit",
-							 "Uses two phase commit to commit foreign transactions.",
-							 NULL,
-							 &pgfdw_two_phase_commit,
-							 false,
-							 PGC_USERSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomBoolVariable("postgres_fdw.skip_commit_phase",
-							 "Performs only prepare phase in two phase commit.",
-							 NULL,
-							 &pgfdw_skip_commit_phase,
-							 false,
-							 PGC_USERSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomBoolVariable("postgres_fdw.track_xact_commits",
-							 "Collects transaction commits information.",
-							 NULL,
-							 &pgfdw_track_xact_commits,
-							 true,
-							 PGC_USERSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
+	DefineCustomVariablesForPgFdwPlus();
 
 	MarkGUCPrefixReserved("postgres_fdw");
 }

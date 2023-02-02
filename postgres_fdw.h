@@ -18,6 +18,7 @@
 #include "libpq-fe.h"
 #include "nodes/execnodes.h"
 #include "nodes/pathnodes.h"
+#include "postgres_fdw_plus.h"
 #include "utils/relcache.h"
 
 /*
@@ -160,9 +161,6 @@ extern List *ExtractExtensionList(const char *extensionsString,
 								  bool warnOnMissing);
 extern char *process_pgfdw_appname(const char *appname);
 extern char *pgfdw_application_name;
-extern bool pgfdw_two_phase_commit;
-extern bool pgfdw_skip_commit_phase;
-extern bool pgfdw_track_xact_commits;
 
 /* in deparse.c */
 extern void classifyConditions(PlannerInfo *root,

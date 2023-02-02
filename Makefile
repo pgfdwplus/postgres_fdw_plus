@@ -7,6 +7,7 @@ OBJS = \
 	postgres_fdw/deparse.o \
 	option.o \
 	postgres_fdw/postgres_fdw.o \
+	postgres_fdw_plus.o \
 	postgres_fdw/shippable.o
 PGFILEDESC = "postgres_fdw_plus - foreign data wrapper for PostgreSQL, supporting global transaction"
 
