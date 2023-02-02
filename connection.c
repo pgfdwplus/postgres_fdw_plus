@@ -13,29 +13,22 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
-#include "access/table.h"
 #include "access/xact.h"
-#include "catalog/indexing.h"
-#include "catalog/namespace.h"
 #include "catalog/pg_user_mapping.h"
 #include "commands/defrem.h"
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
-#include "postgres_fdw.h"
+#include "postgres_fdw_plus.h"
 #include "storage/fd.h"
 #include "storage/latch.h"
 #include "utils/builtins.h"
 #include "utils/datetime.h"
-#include "utils/guc.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
-#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
-#include "utils/rel.h"
-#include "utils/xid8.h"
 
 /*
  * Connection cache hash table entry
@@ -142,7 +135,6 @@ static void pgfdw_finish_commit_prepared_cleanup(
 	List *pending_entries_commit_prepared);
 static bool pgfdw_rollback_prepared(ConnCacheEntry *entry);
 static void pgfdw_deallocate_all(ConnCacheEntry *entry);
-static void pgfdw_insert_xact_commits(List *umids);
 
 /*
  * Get a PGconn which can be used to execute queries on the remote PostgreSQL
@@ -1964,17 +1956,6 @@ disconnect_cached_connections(Oid serverid)
 	return result;
 }
 
-/*
- * Construct the prepared transaction command like PREPARE TRANSACTION
- * that's issued to the foreign server. It consists of full transaction ID,
- * user mapping OID, process ID and cluster name.
- */
-#define PreparedXactCommand(sql, cmd, entry)	\
-	snprintf(sql, sizeof(sql), "%s 'pgfdw_" UINT64_FORMAT "_%u_%d_%s'",	\
-			 cmd, U64FromFullTransactionId(entry->fxid),	\
-			 (Oid) entry->key, MyProcPid,	\
-			 (*cluster_name == '\0') ? "null" : cluster_name)
-
 static void
 pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 {
@@ -2118,80 +2099,4 @@ pgfdw_deallocate_all(ConnCacheEntry *entry)
 
 	entry->have_prep_stmt = false;
 	entry->have_error = false;
-}
-
-/* Macros for pgfdw_plus.xact_commits table to track transaction commits */
-#define PGFDW_PLUS_SCHEMA	"pgfdw_plus"
-#define PGFDW_PLUS_XACT_COMMITS_TABLE	"xact_commits"
-#define PGFDW_PLUS_XACT_COMMITS_COLS	2
-
-/*
- * Insert the following two information about the current local
- * transaction into PGFDW_PLUS_XACT_COMMITS_TABLE table.
- *
- * 1. The full transaction ID of the current local transaction.
- * 2. Array of user mapping OID corresponding to a foreign transaction
- *    that the current local transaction started. The list of
- *    these user mapping OIDs needs to be specified in the argument
- *    "umids". This list must not be NIL.
- *
- * Note that PGFDW_PLUS_XACT_COMMITS_TABLE, as it is named,
- * eventually contains only the information of committed transactions.
- * If the transaction is rollbacked, the record inserted by this function
- * obviously gets unvisiable.
- */
-static void
-pgfdw_insert_xact_commits(List *umids)
-{
-	Datum		values[PGFDW_PLUS_XACT_COMMITS_COLS];
-	bool		nulls[PGFDW_PLUS_XACT_COMMITS_COLS];
-	Datum	   *datums;
-	int			ndatums;
-	ArrayType  *arr;
-	ListCell   *lc;
-	Oid			namespaceId;
-	Oid			relId;
-	Relation	rel;
-	HeapTuple	tup;
-
-	Assert(umids != NIL);
-
-	MemSet(values, 0, sizeof(values));
-	MemSet(nulls, 0, sizeof(nulls));
-
-	values[0] = FullTransactionIdGetDatum(GetTopFullTransactionId());
-
-	/* Convert a list of umid to an oid[] Datum */
-	ndatums = list_length(umids);
-	datums = (Datum *) palloc(ndatums * sizeof(Datum));
-	ndatums = 0;
-	foreach(lc, umids)
-	{
-		Oid			umid = lfirst_oid(lc);
-
-		datums[ndatums++] = ObjectIdGetDatum(umid);
-	}
-	arr = construct_array(datums, ndatums, OIDOID, sizeof(Oid),
-						  true, TYPALIGN_INT);
-	values[1] = PointerGetDatum(arr);
-
-	/*
-	 * Look up the schema and table to store transaction commits information.
-	 * Note that we don't verify we have enough permissions on them, nor run
-	 * object access hooks for them.
-	 */
-	namespaceId = get_namespace_oid(PGFDW_PLUS_SCHEMA, false);
-	relId = get_relname_relid(PGFDW_PLUS_XACT_COMMITS_TABLE, namespaceId);
-	if (!OidIsValid(relId))
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_TABLE),
-				 errmsg("relation \"%s.%s\" does not exist",
-						PGFDW_PLUS_SCHEMA,
-						PGFDW_PLUS_XACT_COMMITS_TABLE)));
-
-	rel = table_open(relId, RowExclusiveLock);
-	tup = heap_form_tuple(RelationGetDescr(rel), values, nulls);
-	CatalogTupleInsert(rel, tup);
-
-	table_close(rel, NoLock);
 }

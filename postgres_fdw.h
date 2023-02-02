@@ -18,7 +18,6 @@
 #include "libpq-fe.h"
 #include "nodes/execnodes.h"
 #include "nodes/pathnodes.h"
-#include "postgres_fdw_plus.h"
 #include "utils/relcache.h"
 
 /*

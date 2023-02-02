@@ -19,7 +19,7 @@
 #include "commands/defrem.h"
 #include "commands/extension.h"
 #include "libpq/libpq-be.h"
-#include "postgres_fdw.h"
+#include "postgres_fdw_plus.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/varlena.h"
