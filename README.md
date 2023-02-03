@@ -17,7 +17,7 @@ a liberal Open Source license, similar to the BSD or MIT licenses.
 Download the source archive of postgres_fdw_plus from
 [here](https://github.com/MasaoFujii/postgres_fdw_plus),
 and then build and install it. postgres_fdw_plus requires
-PostgreSQL 15 or later.
+PostgreSQL 16 or later.
 
 ```
 $ cd postgres_fdw_plus
