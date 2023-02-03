@@ -4,7 +4,7 @@
 #include "access/xact.h"
 #include "miscadmin.h"
 #include "nodes/pg_list.h"
-#include "postgres_fdw.h"
+#include "postgres_fdw/postgres_fdw.h"
 #include "utils/guc.h"
 
 /*
