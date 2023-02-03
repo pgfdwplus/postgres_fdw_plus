@@ -1,7 +1,6 @@
 #include "postgres.h"
 
 #include "access/table.h"
-#include "access/xact.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "postgres_fdw_plus.h"
@@ -56,6 +55,11 @@ DefineCustomVariablesForPgFdwPlus(void)
 							 NULL,
 							 NULL);
 }
+
+/*
+ * Connection cache (initialized on first use)
+ */
+HTAB *ConnectionHash = NULL;
 
 bool
 pgfdw_exec_cleanup_query_begin(ConnCacheEntry *entry, const char *query)
@@ -189,6 +193,112 @@ pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry, const char *sql,
 
 	/* Disarm changing_xact_state if it all worked */
 	entry->changing_xact_state = false;
+}
+
+bool
+pgfdw_xact_two_phase(XactEvent event)
+{
+	HASH_SEQ_STATUS scan;
+	ConnCacheEntry *entry;
+	List	   *umids = NIL;
+	List	   *pending_entries_prepare = NIL;
+	List	   *pending_entries_commit_prepared = NIL;
+
+	/* Quick exit if not two-phase commit case */
+	switch (event)
+	{
+		case XACT_EVENT_PARALLEL_PRE_COMMIT:
+		case XACT_EVENT_PRE_COMMIT:
+			if (!pgfdw_two_phase_commit)
+				return false;
+			break;
+		case XACT_EVENT_PRE_PREPARE:
+		case XACT_EVENT_PREPARE:
+			return false;
+		default:
+			break;
+	}
+
+	/*
+	 * Scan all connection cache entries to find open remote transactions, and
+	 * close them.
+	 */
+	hash_seq_init(&scan, ConnectionHash);
+	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
+	{
+		/* Ignore cache entry if no open connection right now */
+		if (entry->conn == NULL)
+			continue;
+
+		/* If it has an open remote transaction, try to close it */
+		if (entry->xact_depth > 0)
+		{
+			elog(DEBUG3, "closing remote transaction on connection %p",
+				 entry->conn);
+
+			switch (event)
+			{
+				case XACT_EVENT_PARALLEL_PRE_COMMIT:
+				case XACT_EVENT_PRE_COMMIT:
+					Assert(pgfdw_two_phase_commit);
+
+					/*
+					 * If abort cleanup previously failed for this connection,
+					 * we can't issue any more commands against it.
+					 */
+					pgfdw_reject_incomplete_xact_state_change(entry);
+
+					pgfdw_prepare_xacts(entry, &pending_entries_prepare);
+					if (pgfdw_track_xact_commits)
+						umids = lappend_oid(umids, (Oid) entry->key);
+					continue;
+
+				case XACT_EVENT_PARALLEL_COMMIT:
+				case XACT_EVENT_COMMIT:
+					pgfdw_commit_prepared(entry,
+										  &pending_entries_commit_prepared);
+					break;
+
+				case XACT_EVENT_PARALLEL_ABORT:
+				case XACT_EVENT_ABORT:
+					if (pgfdw_rollback_prepared(entry))
+						break;
+					pgfdw_abort_cleanup(entry, true);
+					break;
+
+				default:
+					Assert(false);	/* can't happen */
+					break;
+			}
+		}
+
+		/* Reset state to show we're out of a transaction */
+		entry->fxid = InvalidFullTransactionId;
+		pgfdw_reset_xact_state(entry, true);
+	}
+
+	if (pending_entries_prepare)
+	{
+		Assert(event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
+			   event == XACT_EVENT_PRE_COMMIT);
+		pgfdw_finish_prepare_cleanup(pending_entries_prepare);
+	}
+
+	if (pending_entries_commit_prepared)
+	{
+		Assert(event == XACT_EVENT_PARALLEL_COMMIT ||
+			   event == XACT_EVENT_COMMIT);
+		pgfdw_finish_commit_prepared_cleanup(pending_entries_commit_prepared);
+	}
+
+	if (umids)
+	{
+		Assert(event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
+			   event == XACT_EVENT_PRE_COMMIT);
+		pgfdw_insert_xact_commits(umids);
+	}
+
+	return true;
 }
 
 void

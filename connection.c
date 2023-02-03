@@ -71,12 +71,12 @@ typedef struct ConnCacheEntry
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
 	PgFdwConnState state;		/* extra per-connection state */
 } ConnCacheEntry;
-#endif	/* NOT_USED_IN_PGFDWPLUS */
 
 /*
  * Connection cache (initialized on first use)
  */
 static HTAB *ConnectionHash = NULL;
+#endif	/* NOT_USED_IN_PGFDWPLUS */
 
 /* for assigning cursor numbers and prepared statement numbers */
 static unsigned int cursor_number = 0;
@@ -110,9 +110,9 @@ static void pgfdw_subxact_callback(SubXactEvent event,
 								   SubTransactionId parentSubid,
 								   void *arg);
 static void pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
+#ifdef NOT_USED_IN_PGFDWPLUS
 static void pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry);
 static void pgfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
-#ifdef NOT_USED_IN_PGFDWPLUS
 static bool pgfdw_cancel_query(PGconn *conn);
 static bool pgfdw_exec_cleanup_query(PGconn *conn, const char *query,
 									 bool ignore_errors);
@@ -938,15 +938,19 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 {
 	HASH_SEQ_STATUS scan;
 	ConnCacheEntry *entry;
-	List	   *umids = NIL;
-	bool		used_2pc = false;
 	List	   *pending_entries = NIL;
-	List	   *pending_entries_prepare = NIL;
-	List	   *pending_entries_commit_prepared = NIL;
 
 	/* Quick exit if no connections were touched in this transaction. */
 	if (!xact_got_connection)
 		return;
+
+	if (pgfdw_xact_two_phase(event))
+	{
+		if (event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
+			event == XACT_EVENT_PRE_COMMIT)
+			return;
+		goto done;
+	}
 
 	/*
 	 * Scan all connection cache entries to find open remote transactions, and
@@ -977,15 +981,6 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					 * we can't issue any more commands against it.
 					 */
 					pgfdw_reject_incomplete_xact_state_change(entry);
-
-					if (pgfdw_two_phase_commit)
-					{
-						pgfdw_prepare_xacts(entry, &pending_entries_prepare);
-						if (pgfdw_track_xact_commits)
-							umids = lappend_oid(umids, (Oid) entry->key);
-						used_2pc = true;
-						continue;
-					}
 
 					/* Commit all remote transactions during pre-commit */
 					entry->changing_xact_state = true;
@@ -1038,20 +1033,12 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					break;
 				case XACT_EVENT_PARALLEL_COMMIT:
 				case XACT_EVENT_COMMIT:
-
-					pgfdw_commit_prepared(entry,
-										  &pending_entries_commit_prepared);
-					break;
 				case XACT_EVENT_PREPARE:
 					/* Pre-commit should have closed the open transaction */
 					elog(ERROR, "missed cleaning up connection during pre-commit");
 					break;
 				case XACT_EVENT_PARALLEL_ABORT:
 				case XACT_EVENT_ABORT:
-
-					if (pgfdw_rollback_prepared(entry))
-						break;
-
 					/* Rollback all remote transactions during abort */
 					pgfdw_abort_cleanup(entry, true);
 					break;
@@ -1059,8 +1046,6 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		}
 
 		/* Reset state to show we're out of a transaction */
-		entry->xact_depth = 0;
-		entry->fxid = InvalidFullTransactionId;
 		pgfdw_reset_xact_state(entry, true);
 	}
 
@@ -1072,27 +1057,7 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		pgfdw_finish_pre_commit_cleanup(pending_entries);
 	}
 
-	if (pending_entries_prepare)
-	{
-		Assert(event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
-			   event == XACT_EVENT_PRE_COMMIT);
-		pgfdw_finish_prepare_cleanup(pending_entries_prepare);
-	}
-
-	if (pending_entries_commit_prepared)
-	{
-		Assert(event == XACT_EVENT_PARALLEL_COMMIT ||
-			   event == XACT_EVENT_COMMIT);
-		pgfdw_finish_commit_prepared_cleanup(pending_entries_commit_prepared);
-	}
-
-	if (used_2pc)
-	{
-		if (umids != NIL)
-			pgfdw_insert_xact_commits(umids);
-		return;
-	}
-
+done:
 	/*
 	 * Regardless of the event type, we can now mark ourselves as out of the
 	 * transaction.  (Note: if we are here during PRE_COMMIT or PRE_PREPARE,
@@ -1252,7 +1217,10 @@ pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
  * connection would change the snapshot and roll back any writes already
  * performed, so that's not an option, either. Thus, we must abort.
  */
+#ifdef NOT_USED_IN_PGFDWPLUS
 static void
+#endif	/* NOT_USED_IN_PGFDWPLUS */
+void
 pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 {
 	ForeignServer *server;
@@ -1276,7 +1244,10 @@ pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 /*
  * Reset state to show we're out of a (sub)transaction.
  */
+#ifdef NOT_USED_IN_PGFDWPLUS
 static void
+#endif	/* NOT_USED_IN_PGFDWPLUS */
+void
 pgfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel)
 {
 	if (toplevel)

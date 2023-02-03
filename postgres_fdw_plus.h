@@ -1,10 +1,18 @@
 #ifndef POSTGRES_FDW_PLUS_H
 #define POSTGRES_FDW_PLUS_H
 
+#include "access/xact.h"
 #include "miscadmin.h"
 #include "nodes/pg_list.h"
 #include "postgres_fdw.h"
 #include "utils/guc.h"
+
+/*
+ * GUC parameters
+ */
+extern bool pgfdw_two_phase_commit;
+extern bool pgfdw_skip_commit_phase;
+extern bool pgfdw_track_xact_commits;
 
 /*
  * Connection cache hash table entry
@@ -49,9 +57,7 @@ typedef struct ConnCacheEntry
 							 * is dead */
 } ConnCacheEntry;
 
-extern bool pgfdw_two_phase_commit;
-extern bool pgfdw_skip_commit_phase;
-extern bool pgfdw_track_xact_commits;
+extern HTAB *ConnectionHash;
 
 /* option.c */
 extern void DefineCustomVariablesForPgFdwPlus(void);
@@ -60,6 +66,9 @@ extern void DefineCustomVariablesForPgFdwPlus(void);
 extern void do_sql_command_begin(PGconn *conn, const char *sql);
 extern void do_sql_command_end(PGconn *conn, const char *sql,
 							   bool consume_input);
+
+extern void pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry);
+extern void pgfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
 extern bool pgfdw_cancel_query(PGconn *conn);
 extern bool pgfdw_exec_cleanup_query(PGconn *conn, const char *query,
 									 bool ignore_errors);
@@ -74,6 +83,7 @@ extern bool pgfdw_exec_cleanup_query_begin(ConnCacheEntry *entry,
 extern bool pgfdw_exec_cleanup_query_end(ConnCacheEntry *entry,
 										 const char *query,
 										 bool ignore_errors);
+extern bool pgfdw_xact_two_phase(XactEvent event);
 extern void pgfdw_prepare_xacts(ConnCacheEntry *entry,
 								List **pending_entries_prepare);
 extern void pgfdw_finish_prepare_cleanup(List *pending_entries_prepare);
