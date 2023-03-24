@@ -34,6 +34,10 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
+#ifdef HAVE_POLL_H
+#include <poll.h>
+#endif
+
 #ifdef NOT_USED_IN_PGFDWPLUS
 /*
  * Connection cache hash table entry
@@ -92,6 +96,9 @@ static bool xact_got_connection = false;
 PG_FUNCTION_INFO_V1(postgres_fdw_get_connections);
 PG_FUNCTION_INFO_V1(postgres_fdw_disconnect);
 PG_FUNCTION_INFO_V1(postgres_fdw_disconnect_all);
+PG_FUNCTION_INFO_V1(pgfdw_plus_verify_connection_states);
+PG_FUNCTION_INFO_V1(pgfdw_plus_verify_connection_states_all);
+PG_FUNCTION_INFO_V1(pgfdw_plus_can_verify_connection_states);
 
 /* prototypes of private functions */
 static void make_new_connection(ConnCacheEntry *entry, UserMapping *user);
@@ -126,6 +133,9 @@ static void pgfdw_finish_pre_subcommit_cleanup(List *pending_entries,
 											   int curlevel);
 static bool UserMappingPasswordRequired(UserMapping *user);
 static bool disconnect_cached_connections(Oid serverid);
+static bool connection_checkable();
+static int check_connection_health(PGconn *conn);
+static bool verify_cached_connections(Oid serverid, bool *checked);
 
 /*
  * Get a PGconn which can be used to execute queries on the remote PostgreSQL
@@ -1873,4 +1883,214 @@ disconnect_cached_connections(Oid serverid)
 	}
 
 	return result;
+}
+
+/*
+ * Check whether check_connection_health() can work on this platform.
+ *
+ * This function returns true if this platform can use check_connection_health(),
+ * otherwise false.
+ */
+static bool
+connection_checkable()
+{
+#if defined(HAVE_POLL) && defined(POLLRDHUP)
+	return true;
+#else
+	return false;
+#endif
+}
+
+/*
+ * Check whether the socket peer closed the connection or not.
+ *
+ * This function returns >0 if the remote peer closed the connection, 0 if
+ * disconnection is not detected or this function is not supported on this
+ * platform, -1 if an error occurred.
+ */
+static int
+check_connection_health(PGconn *conn)
+{
+#if defined(HAVE_POLL) && defined(POLLRDHUP)
+	struct	pollfd input_fd;
+	int		sock = PQsocket(conn);
+	int		result;
+	int		errflags = POLLERR | POLLHUP | POLLNVAL;
+
+	if (conn == NULL || sock == PGINVALID_SOCKET)
+		return -1;
+
+	input_fd.fd = sock;
+	input_fd.events = POLLRDHUP;
+
+	do
+		result = poll(&input_fd, 1, 0);
+	while (result < 0 && errno == EINTR);
+
+	/* revents field is filld, but error state */
+	if (result > 0 && (input_fd.revents & errflags))
+		return -1;
+
+	return result;
+#else
+	return 0;
+#endif
+}
+
+/*
+ * Workhorse to verify cached connections.
+ *
+ * This function scans all the connection cache entries and verifies the
+ * connections whose foreign server OID matches with the specified one. If
+ * InvalidOid is specified, it verifies all the cached connections.
+ *
+ * This function emits warnings if a disconnection is found. This returns false
+ * if disconnections are found, otherwise returns true.
+ *
+ * checked will be set to true if check_connection_health() is called at least once.
+ */
+static bool
+verify_cached_connections(Oid serverid, bool *checked)
+{
+	HASH_SEQ_STATUS scan;
+	ConnCacheEntry *entry;
+	bool		all = !OidIsValid(serverid);
+	bool		result = true;
+	StringInfoData str;
+
+	*checked = false;
+
+	Assert(ConnectionHash);
+
+	hash_seq_init(&scan, ConnectionHash);
+	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
+	{
+		/* Ignore cache entry if no open connection right now */
+		if (!entry->conn)
+			continue;
+
+		/* Skip if the entry is invalidated */
+		if (entry->invalidated)
+			continue;
+
+		if (all || entry->serverid == serverid)
+		{
+			if (check_connection_health(entry->conn))
+			{
+				/* A foreign server might be down, so construct a message */
+				ForeignServer *server = GetForeignServer(entry->serverid);
+
+				if (result)
+				{
+					/*
+					 * Initialize and add a prefix if this is the first
+					 * disconnection we found.
+					 */
+					initStringInfo(&str);
+					appendStringInfo(&str, "could not connect to server ");
+
+					result = false;
+				}
+				else
+					appendStringInfo(&str, ", ");
+
+				appendStringInfo(&str, "\"%s\"", server->servername);
+			}
+
+			/* Set a flag to notify the caller */
+			*checked = true;
+		}
+	}
+
+	/* Raise a warning if disconnections are found */
+	if (!result)
+	{
+		Assert(str.len);
+		ereport(WARNING,
+				errcode(ERRCODE_CONNECTION_FAILURE),
+				errmsg("%s", str.data),
+				errdetail("Connection close is detected."),
+				errhint("Plsease check the health of server."));
+		pfree(str.data);
+	}
+
+	return result;
+}
+
+/*
+ * Verify the specified cached connections.
+ *
+ * This function verifies the connections that are established by postgres_fdw
+ * from the local session to the foreign server with the given name.
+ *
+ * This function emits a warning if a disconnection is found. This returns true
+ * if existing connection is not closed by the remote peer. false is returned
+ * if the local session seems to be disconnected from other servers. NULL is
+ * returned if a valid connection to the specified foreign server is not
+ * established or this function is not available on this platform.
+ */
+Datum
+pgfdw_plus_verify_connection_states(PG_FUNCTION_ARGS)
+{
+	ForeignServer *server;
+	char	   *servername;
+	bool		result;
+	bool		checked = false;
+
+	/* quick exit if the checking does not work well on this platfrom */
+	if (!connection_checkable())
+		PG_RETURN_NULL();
+
+	/* quick exit if connection cache has not been initialized yet */
+	if (!ConnectionHash)
+		PG_RETURN_NULL();
+
+	servername = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	server = GetForeignServerByName(servername, false);
+
+	result = verify_cached_connections(server->serverid, &checked);
+
+	/* Return the result if checking function was called, otherwise NULL */
+	if (checked)
+		PG_RETURN_BOOL(result);
+	else
+		PG_RETURN_NULL();
+}
+
+/*
+ * Verify all the cached connections.
+ *
+ * This function verifies all the connections that are established by postgres_fdw
+ * from the local session to the foreign servers.
+ */
+Datum
+pgfdw_plus_verify_connection_states_all(PG_FUNCTION_ARGS)
+{
+	bool		result;
+	bool		checked = false;
+
+	/* quick exit if the checking does not work well on this platfrom */
+	if (!connection_checkable())
+		PG_RETURN_NULL();
+
+	/* quick exit if connection cache has not been initialized yet */
+	if (!ConnectionHash)
+		PG_RETURN_NULL();
+
+	result = verify_cached_connections(InvalidOid, &checked);
+
+	/* Return the result if checking function was called, otherwise NULL */
+	if (checked)
+		PG_RETURN_BOOL(result);
+	else
+		PG_RETURN_NULL();
+}
+
+/*
+ * Check whether functions for verifying cached connections work well or not
+ */
+Datum
+pgfdw_plus_can_verify_connection_states(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_BOOL(connection_checkable());
 }

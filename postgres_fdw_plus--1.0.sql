@@ -490,3 +490,31 @@ BEGIN
     WHERE xc.fxid < r.fxmin AND xc.umids <@ r.umids RETURNING *;
 END;
 $$ LANGUAGE plpgsql;
+
+/*
+ * The object definitions for connection check.
+ */
+
+/*
+ * Check the health of the connection to given server.
+ */
+CREATE FUNCTION pgfdw_plus_verify_connection_states (text)
+RETURNS bool
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT PARALLEL RESTRICTED;
+
+/*
+ * Check the health of the connection to all servers.
+ */
+CREATE FUNCTION pgfdw_plus_verify_connection_states_all ()
+RETURNS bool
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT PARALLEL RESTRICTED;
+
+/*
+ * Return true if connection check is supported on this platform.
+ */
+CREATE FUNCTION pgfdw_plus_can_verify_connection_states ()
+RETURNS bool
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT PARALLEL SAFE;
