@@ -161,3 +161,32 @@ but other users can be granted EXECUTE to run the function.
 
 The caller of this function must be a superuser or a user having
 memberships of all users having valid user mappings to all defined servers.
+
+### boolean pgfdw_plus_verify_connection_states(server_name text)
+Checks the status of remote connections established by postgres_fdw from the
+local session to the foreign server with the given name. This check is performed
+by polling the socket and allows long-running transactions to be aborted sooner
+if the kernel reports that the connection is closed. This function is currently
+available only on systems that support the non-standard POLLRDHUP extension to
+the poll system call, including Linux. This returns true if existing connection
+is not closed by the remote peer. false is returned if the local session seems
+to be disconnected from other servers. NULL is returned if a valid connection
+to the specified foreign server is not established or this function is not
+available on this platform. If no foreign server with the given name is found,
+an error is reported.
+
+### boolean pgfdw_plus_verify_connection_states_all()
+Checks the status of all the remote connections established by postgres_fdw
+from the local session to the foreign servers. This check is performed by
+polling the socket and allows long-running transactions to be aborted sooner if
+the kernel reports that the connection is closed. This function is currently
+available only on systems that support the non-standard POLLRDHUP extension to
+the poll system call, including Linux. This returns true if all connections are
+not closed by the remote peer. false is returned if the local session seems to
+be disconnected from at least one remote server. NULL is returned if no valid
+connections are established or this function is not available on this platform.
+
+### boolean pgfdw_plus_can_verify_connection_states()
+This function checks whether pgfdw_plus_verify_connection_states and
+pgfdw_plus_verify_connection_states_all work well or not. This returns true if
+it can be used, otherwise returns false.
