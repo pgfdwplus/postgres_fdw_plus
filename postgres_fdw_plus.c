@@ -257,6 +257,8 @@ pgfdw_xact_two_phase(XactEvent event)
 				case XACT_EVENT_COMMIT:
 					pgfdw_commit_prepared(entry,
 										  &pending_entries_commit_prepared);
+					if (entry->parallel_commit)
+						continue;
 					break;
 
 				case XACT_EVENT_PARALLEL_ABORT:
@@ -408,6 +410,9 @@ pgfdw_finish_commit_prepared_cleanup(List *pending_entries_commit_prepared)
 
 		if (success)
 			pgfdw_deallocate_all(entry);
+
+		entry->fxid = InvalidFullTransactionId;
+		pgfdw_reset_xact_state(entry, true);
 	}
 }
 
