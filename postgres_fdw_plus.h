@@ -94,6 +94,9 @@ extern void pgfdw_finish_commit_prepared_cleanup(
 extern bool pgfdw_rollback_prepared(ConnCacheEntry *entry);
 extern void pgfdw_deallocate_all(ConnCacheEntry *entry);
 extern void pgfdw_insert_xact_commits(List *umids);
+extern bool connection_checkable(void);
+extern int check_connection_health(PGconn *conn);
+extern bool verify_cached_connections(Oid serverid, bool *checked);
 
 /*
  * Construct the prepared transaction command like PREPARE TRANSACTION
