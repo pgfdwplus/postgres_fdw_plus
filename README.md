@@ -166,14 +166,16 @@ memberships of all users having valid user mappings to all defined servers.
 Checks the status of remote connections established by postgres_fdw from the
 local session to the foreign server with the given name. This check is performed
 by polling the socket and allows long-running transactions to be aborted sooner
-if the kernel reports that the connection is closed. This function is currently
-available only on systems that support the non-standard POLLRDHUP extension to
-the poll system call, including Linux. This returns true if existing connection
-is not closed by the remote peer. false is returned if the local session seems
-to be disconnected from other servers. NULL is returned if a valid connection
-to the specified foreign server is not established. If no foreign server with
-the given name is found or this function is not supported on this platform,
-an error is reported.
+if the kernel reports that the connection is closed.
+
+This function is currently available only on systems that support the
+non-standard POLLRDHUP extension to the poll system call, including Linux.
+
+This function returns true if existing connection is not closed by the remote
+peer. false is returned if the local session seems to be disconnected from other
+servers. NULL is returned if a valid connection to the specified foreign server
+is not established. If no foreign server with the given name is found or this
+function is not supported on this platform, an error is reported.
 
 ### boolean pgfdw_plus_can_verify_connection_states()
 This function checks whether pgfdw_plus_verify_connection_states works well or
