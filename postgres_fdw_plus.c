@@ -675,7 +675,8 @@ verify_cached_connections(Oid serverid, bool *checked)
  * if existing connection is not closed by the remote peer. false is returned
  * if the local session seems to be disconnected from other servers. NULL is
  * returned if a valid connection to the specified foreign server is not
- * established or this function is not available on this platform.
+ * established. If this function is not supported on this platform, this
+ * function raises an error.
  */
 Datum
 pgfdw_plus_verify_connection_states(PG_FUNCTION_ARGS)
@@ -685,9 +686,13 @@ pgfdw_plus_verify_connection_states(PG_FUNCTION_ARGS)
 	bool		result;
 	bool		checked = false;
 
-	/* quick exit if the checking does not work well on this platfrom */
+	/* raise an error if the checking does not work well on this platfrom */
 	if (!connection_checkable())
-		PG_RETURN_NULL();
+	{
+		ereport(ERROR,
+				errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				errmsg("pgfdw_plus_verify_connection_states is not supported on this platform."));
+	}
 
 	/* quick exit if connection cache has not been initialized yet */
 	if (!ConnectionHash)

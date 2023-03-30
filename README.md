@@ -171,8 +171,8 @@ available only on systems that support the non-standard POLLRDHUP extension to
 the poll system call, including Linux. This returns true if existing connection
 is not closed by the remote peer. false is returned if the local session seems
 to be disconnected from other servers. NULL is returned if a valid connection
-to the specified foreign server is not established or this function is not
-available on this platform. If no foreign server with the given name is found,
+to the specified foreign server is not established. If no foreign server with
+the given name is found or this function is not supported on this platform,
 an error is reported.
 
 ### boolean pgfdw_plus_can_verify_connection_states()
