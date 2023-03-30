@@ -70,7 +70,6 @@ HTAB *ConnectionHash = NULL;
  * SQL functions
  */
 PG_FUNCTION_INFO_V1(pgfdw_plus_verify_connection_states);
-PG_FUNCTION_INFO_V1(pgfdw_plus_verify_connection_states_all);
 PG_FUNCTION_INFO_V1(pgfdw_plus_can_verify_connection_states);
 
 bool
@@ -698,35 +697,6 @@ pgfdw_plus_verify_connection_states(PG_FUNCTION_ARGS)
 	server = GetForeignServerByName(servername, false);
 
 	result = verify_cached_connections(server->serverid, &checked);
-
-	/* Return the result if checking function was called, otherwise NULL */
-	if (checked)
-		PG_RETURN_BOOL(result);
-	else
-		PG_RETURN_NULL();
-}
-
-/*
- * Verify all the cached connections.
- *
- * This function verifies all the connections that are established by postgres_fdw
- * from the local session to the foreign servers.
- */
-Datum
-pgfdw_plus_verify_connection_states_all(PG_FUNCTION_ARGS)
-{
-	bool		result;
-	bool		checked = false;
-
-	/* quick exit if the checking does not work well on this platfrom */
-	if (!connection_checkable())
-		PG_RETURN_NULL();
-
-	/* quick exit if connection cache has not been initialized yet */
-	if (!ConnectionHash)
-		PG_RETURN_NULL();
-
-	result = verify_cached_connections(InvalidOid, &checked);
 
 	/* Return the result if checking function was called, otherwise NULL */
 	if (checked)

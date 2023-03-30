@@ -684,7 +684,7 @@ SELECT 1 FROM postgres_fdw_disconnect_all();
 
 ALTER SERVER pgfdw_plus_loopback1 OPTIONS (SET application_name 'healthcheck');
 -- Define procedure for testing verify functions
-CREATE PROCEDURE test_verify_function(use_all boolean) AS $$
+DO $$
 DECLARE
 	can_verify boolean;
 	result boolean;
@@ -703,13 +703,7 @@ BEGIN
 		-- Set client_min_messages to ERROR temporary because the following
 		-- function only throws a WARNING on the supported platform.
 		SET LOCAL client_min_messages TO ERROR;
-
-		IF use_all IS TRUE THEN
-			SELECT INTO result pgfdw_plus_verify_connection_states_all();
-		ELSE
-			SELECT INTO result pgfdw_plus_verify_connection_states('pgfdw_plus_loopback1');
-		END IF;
-
+		SELECT INTO result pgfdw_plus_verify_connection_states('pgfdw_plus_loopback1');
 		RESET client_min_messages;
 	ELSE
 		result = false;
@@ -718,15 +712,10 @@ BEGIN
 	-- If result is FALSE, we succeeded to detect the disconnection or it could
 	-- not be done on this platform. Raise an message.
 	IF result IS FALSE THEN
-		RAISE INFO 'pgfdw_plus_verify_connection_states_all() could detect the disconnection, or health check cannot be used on this platform';
+		RAISE INFO 'pgfdw_plus_verify_connection_states() detected the disconnection, or health check cannot be used on this platform';
 	END IF;
 END;
 $$ LANGUAGE plpgsql;
--- ..And call above function
-CALL test_verify_function(false);
-INFO:  00000
-ERROR:  08006
-CALL test_verify_function(true);
 INFO:  00000
 ERROR:  08006
 -- Clean up

@@ -504,14 +504,6 @@ AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT PARALLEL RESTRICTED;
 
 /*
- * Check the health of the connection to all servers.
- */
-CREATE FUNCTION pgfdw_plus_verify_connection_states_all ()
-RETURNS bool
-AS 'MODULE_PATHNAME'
-LANGUAGE C STRICT PARALLEL RESTRICTED;
-
-/*
  * Return true if connection check is supported on this platform.
  */
 CREATE FUNCTION pgfdw_plus_can_verify_connection_states ()
