@@ -583,7 +583,7 @@ SET ROLE regress_pgfdw_local_normal1;
 SELECT count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all();
 NOTICE:  skipping server "pgfdw_plus_loopback1" with user mapping for "public"
 NOTICE:  could not resolve foreign prepared transactions on server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_pgfdw_local_super1"
  count 
 -------
@@ -593,7 +593,7 @@ NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_p
 SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
 NOTICE:  skipping server "pgfdw_plus_loopback1" with user mapping for "public"
 NOTICE:  could not retrieve minimum full transaction ID from server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_pgfdw_local_super1"
  count 
 -------
@@ -607,9 +607,9 @@ NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_p
 SET ROLE regress_pgfdw_local_normal3;
 SELECT count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all();
 NOTICE:  could not resolve foreign prepared transactions on server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  could not resolve foreign prepared transactions on server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_pgfdw_local_super1"
  count 
 -------
@@ -618,9 +618,9 @@ NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_p
 
 SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
 NOTICE:  could not retrieve minimum full transaction ID from server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  could not retrieve minimum full transaction ID from server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_pgfdw_local_super1"
  count 
 -------
@@ -633,7 +633,7 @@ NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_p
 SET ROLE regress_pgfdw_local_normal4;
 SELECT count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all();
 NOTICE:  could not resolve foreign prepared transactions on server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  skipping server "pgfdw_plus_loopback1" with user mapping for "regress_pgfdw_local_normal1"
 NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_pgfdw_local_super1"
  count 
@@ -643,7 +643,7 @@ NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_p
 
 SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
 NOTICE:  could not retrieve minimum full transaction ID from server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
 NOTICE:  skipping server "pgfdw_plus_loopback1" with user mapping for "regress_pgfdw_local_normal1"
 NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_pgfdw_local_super1"
  count 
@@ -656,7 +656,7 @@ NOTICE:  skipping server "pgfdw_plus_loopback2" with user mapping for "regress_p
 SET ROLE regress_pgfdw_local_super1;
 SELECT count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all();
 NOTICE:  could not resolve foreign prepared transactions on server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
  count 
 -------
      0
@@ -664,7 +664,7 @@ DETAIL:  Error message: password is required
 
 SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
 NOTICE:  could not retrieve minimum full transaction ID from server "pgfdw_plus_loopback1"
-DETAIL:  Error message: password is required
+DETAIL:  Error message: password or GSSAPI delegated credentials required
  count 
 -------
      3
