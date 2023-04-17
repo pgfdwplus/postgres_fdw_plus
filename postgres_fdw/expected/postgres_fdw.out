@@ -171,7 +171,8 @@ ALTER SERVER testserver1 OPTIONS (
 	sslcrl 'value',
 	--requirepeer 'value',
 	krbsrvname 'value',
-	gsslib 'value'
+	gsslib 'value',
+	gssdeleg 'value'
 	--replication 'value'
 );
 -- Error, invalid list syntax
@@ -9840,8 +9841,8 @@ CREATE FOREIGN TABLE pg_temp.ft1_nopw (
 	c8 user_enum
 ) SERVER loopback_nopw OPTIONS (schema_name 'public', table_name 'ft1');
 SELECT 1 FROM ft1_nopw LIMIT 1;
-ERROR:  password is required
-DETAIL:  Non-superusers must provide a password in the user mapping.
+ERROR:  password or GSSAPI delegated credentials required
+DETAIL:  Non-superusers must delegate GSSAPI credentials or provide a password in the user mapping.
 -- If we add a password to the connstr it'll fail, because we don't allow passwords
 -- in connstrs only in user mappings.
 ALTER SERVER loopback_nopw OPTIONS (ADD password 'dummypw');
@@ -9853,16 +9854,16 @@ HINT:  Perhaps you meant the option "passfile".
 -- This won't work with installcheck, but neither will most of the FDW checks.
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback_nopw OPTIONS (ADD password 'dummypw');
 SELECT 1 FROM ft1_nopw LIMIT 1;
-ERROR:  password is required
-DETAIL:  Non-superuser cannot connect if the server does not request a password.
+ERROR:  password or GSSAPI delegated credentials required
+DETAIL:  Non-superuser cannot connect if the server does not request a password or use GSSAPI with delegated credentials.
 HINT:  Target server's authentication method must be changed or password_required=false set in the user mapping attributes.
 -- Unpriv user cannot make the mapping passwordless
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback_nopw OPTIONS (ADD password_required 'false');
 ERROR:  password_required=false is superuser-only
 HINT:  User mappings with the password_required option set to false may only be created or modified by the superuser.
 SELECT 1 FROM ft1_nopw LIMIT 1;
-ERROR:  password is required
-DETAIL:  Non-superuser cannot connect if the server does not request a password.
+ERROR:  password or GSSAPI delegated credentials required
+DETAIL:  Non-superuser cannot connect if the server does not request a password or use GSSAPI with delegated credentials.
 HINT:  Target server's authentication method must be changed or password_required=false set in the user mapping attributes.
 RESET ROLE;
 -- But the superuser can
@@ -9890,8 +9891,8 @@ DROP USER MAPPING FOR CURRENT_USER SERVER loopback_nopw;
 -- This will fail again as it'll resolve the user mapping for public, which
 -- lacks password_required=false
 SELECT 1 FROM ft1_nopw LIMIT 1;
-ERROR:  password is required
-DETAIL:  Non-superusers must provide a password in the user mapping.
+ERROR:  password or GSSAPI delegated credentials required
+DETAIL:  Non-superusers must delegate GSSAPI credentials or provide a password in the user mapping.
 RESET ROLE;
 -- The user mapping for public is passwordless and lacks the password_required=false
 -- mapping option, but will work because the current user is a superuser.
@@ -9926,11 +9927,6 @@ WARNING:  there is no transaction in progress
 -- Change application_name of remote connection to special one
 -- so that we can easily terminate the connection later.
 ALTER SERVER loopback OPTIONS (application_name 'fdw_retry_check');
--- If debug_discard_caches is active, it results in
--- dropping remote connections after every transaction, making it
--- impossible to test termination meaningfully.  So turn that off
--- for this test.
-SET debug_discard_caches = 0;
 -- Make sure we have a remote connection.
 SELECT 1 FROM ft1 LIMIT 1;
  ?column? 
@@ -9939,13 +9935,12 @@ SELECT 1 FROM ft1 LIMIT 1;
 (1 row)
 
 -- Terminate the remote connection and wait for the termination to complete.
-SELECT pg_terminate_backend(pid, 180000) FROM pg_stat_activity
+-- (If a cache flush happens, the remote connection might have already been
+-- dropped; so code this step in a way that doesn't fail if no connection.)
+DO $$ BEGIN
+PERFORM pg_terminate_backend(pid, 180000) FROM pg_stat_activity
 	WHERE application_name = 'fdw_retry_check';
- pg_terminate_backend 
-----------------------
- t
-(1 row)
-
+END $$;
 -- This query should detect the broken connection when starting new remote
 -- transaction, reestablish new connection, and then succeed.
 BEGIN;
@@ -9958,13 +9953,10 @@ SELECT 1 FROM ft1 LIMIT 1;
 -- If we detect the broken connection when starting a new remote
 -- subtransaction, we should fail instead of establishing a new connection.
 -- Terminate the remote connection and wait for the termination to complete.
-SELECT pg_terminate_backend(pid, 180000) FROM pg_stat_activity
+DO $$ BEGIN
+PERFORM pg_terminate_backend(pid, 180000) FROM pg_stat_activity
 	WHERE application_name = 'fdw_retry_check';
- pg_terminate_backend 
-----------------------
- t
-(1 row)
-
+END $$;
 SAVEPOINT s;
 -- The text of the error might vary across platforms, so only show SQLSTATE.
 \set VERBOSITY sqlstate
@@ -9972,7 +9964,6 @@ SELECT 1 FROM ft1 LIMIT 1;    -- should fail
 ERROR:  08006
 \set VERBOSITY default
 COMMIT;
-RESET debug_discard_caches;
 -- =============================================================================
 -- test connection invalidation cases and postgres_fdw_get_connections function
 -- =============================================================================
@@ -11629,79 +11620,76 @@ HINT:  There are no valid options in this context.
 -- ===================================================================
 -- test postgres_fdw.application_name GUC
 -- ===================================================================
---- Turn debug_discard_caches off for this test to make sure that
---- the remote connection is alive when checking its application_name.
-SET debug_discard_caches = 0;
+-- To avoid race conditions in checking the remote session's application_name,
+-- use this view to make the remote session itself read its application_name.
+CREATE VIEW my_application_name AS
+  SELECT application_name FROM pg_stat_activity WHERE pid = pg_backend_pid();
+CREATE FOREIGN TABLE remote_application_name (application_name text)
+  SERVER loopback2
+  OPTIONS (schema_name 'public', table_name 'my_application_name');
+SELECT count(*) FROM remote_application_name;
+ count 
+-------
+     1
+(1 row)
+
 -- Specify escape sequences in application_name option of a server
 -- object so as to test that they are replaced with status information
--- expectedly.
+-- expectedly.  Note that we are also relying on ALTER SERVER to force
+-- the remote session to be restarted with its new application name.
 --
 -- Since pg_stat_activity.application_name may be truncated to less than
 -- NAMEDATALEN characters, note that substring() needs to be used
 -- at the condition of test query to make sure that the string consisting
 -- of database name and process ID is also less than that.
 ALTER SERVER loopback2 OPTIONS (application_name 'fdw_%d%p');
-SELECT 1 FROM ft6 LIMIT 1;
- ?column? 
-----------
-        1
-(1 row)
-
-SELECT pg_terminate_backend(pid, 180000) FROM pg_stat_activity
+SELECT count(*) FROM remote_application_name
   WHERE application_name =
     substring('fdw_' || current_database() || pg_backend_pid() for
       current_setting('max_identifier_length')::int);
- pg_terminate_backend 
-----------------------
- t
+ count 
+-------
+     1
 (1 row)
 
 -- postgres_fdw.application_name overrides application_name option
 -- of a server object if both settings are present.
+ALTER SERVER loopback2 OPTIONS (SET application_name 'fdw_wrong');
 SET postgres_fdw.application_name TO 'fdw_%a%u%%';
-SELECT 1 FROM ft6 LIMIT 1;
- ?column? 
-----------
-        1
-(1 row)
-
-SELECT pg_terminate_backend(pid, 180000) FROM pg_stat_activity
+SELECT count(*) FROM remote_application_name
   WHERE application_name =
     substring('fdw_' || current_setting('application_name') ||
       CURRENT_USER || '%' for current_setting('max_identifier_length')::int);
- pg_terminate_backend 
-----------------------
- t
+ count 
+-------
+     1
 (1 row)
 
+RESET postgres_fdw.application_name;
 -- Test %c (session ID) and %C (cluster name) escape sequences.
-SET postgres_fdw.application_name TO 'fdw_%C%c';
-SELECT 1 FROM ft6 LIMIT 1;
- ?column? 
-----------
-        1
-(1 row)
-
-SELECT pg_terminate_backend(pid, 180000) FROM pg_stat_activity
+ALTER SERVER loopback2 OPTIONS (SET application_name 'fdw_%C%c');
+SELECT count(*) FROM remote_application_name
   WHERE application_name =
     substring('fdw_' || current_setting('cluster_name') ||
       to_hex(trunc(EXTRACT(EPOCH FROM (SELECT backend_start FROM
       pg_stat_get_activity(pg_backend_pid()))))::integer) || '.' ||
       to_hex(pg_backend_pid())
       for current_setting('max_identifier_length')::int);
- pg_terminate_backend 
-----------------------
- t
+ count 
+-------
+     1
 (1 row)
 
---Clean up
-RESET postgres_fdw.application_name;
-RESET debug_discard_caches;
+-- Clean up.
+DROP FOREIGN TABLE remote_application_name;
+DROP VIEW my_application_name;
 -- ===================================================================
--- test parallel commit
+-- test parallel commit and parallel abort
 -- ===================================================================
 ALTER SERVER loopback OPTIONS (ADD parallel_commit 'true');
+ALTER SERVER loopback OPTIONS (ADD parallel_abort 'true');
 ALTER SERVER loopback2 OPTIONS (ADD parallel_commit 'true');
+ALTER SERVER loopback2 OPTIONS (ADD parallel_abort 'true');
 CREATE TABLE ploc1 (f1 int, f2 text);
 CREATE FOREIGN TABLE prem1 (f1 int, f2 text)
   SERVER loopback OPTIONS (table_name 'ploc1');
@@ -11771,8 +11759,57 @@ SELECT * FROM prem2;
  204 | quxqux
 (3 rows)
 
+BEGIN;
+INSERT INTO prem1 VALUES (105, 'test1');
+INSERT INTO prem2 VALUES (205, 'test2');
+ABORT;
+SELECT * FROM prem1;
+ f1  |   f2   
+-----+--------
+ 101 | foo
+ 102 | foofoo
+ 104 | bazbaz
+(3 rows)
+
+SELECT * FROM prem2;
+ f1  |   f2   
+-----+--------
+ 201 | bar
+ 202 | barbar
+ 204 | quxqux
+(3 rows)
+
+-- This tests executing DEALLOCATE ALL against foreign servers in parallel
+-- during post-abort
+BEGIN;
+SAVEPOINT s;
+INSERT INTO prem1 VALUES (105, 'test1');
+INSERT INTO prem2 VALUES (205, 'test2');
+ROLLBACK TO SAVEPOINT s;
+RELEASE SAVEPOINT s;
+INSERT INTO prem1 VALUES (105, 'test1');
+INSERT INTO prem2 VALUES (205, 'test2');
+ABORT;
+SELECT * FROM prem1;
+ f1  |   f2   
+-----+--------
+ 101 | foo
+ 102 | foofoo
+ 104 | bazbaz
+(3 rows)
+
+SELECT * FROM prem2;
+ f1  |   f2   
+-----+--------
+ 201 | bar
+ 202 | barbar
+ 204 | quxqux
+(3 rows)
+
 ALTER SERVER loopback OPTIONS (DROP parallel_commit);
+ALTER SERVER loopback OPTIONS (DROP parallel_abort);
 ALTER SERVER loopback2 OPTIONS (DROP parallel_commit);
+ALTER SERVER loopback2 OPTIONS (DROP parallel_abort);
 -- ===================================================================
 -- test for ANALYZE sampling
 -- ===================================================================

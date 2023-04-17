@@ -61,74 +61,12 @@ DefineCustomVariablesForPgFdwPlus(void)
  */
 HTAB *ConnectionHash = NULL;
 
-bool
-pgfdw_exec_cleanup_query_begin(ConnCacheEntry *entry, const char *query)
-{
-	/*
-	 * If it takes too long to execute a cleanup query, assume the connection
-	 * is dead.  It's fairly likely that this is why we aborted in the first
-	 * place (e.g. statement timeout, user cancel), so the timeout shouldn't
-	 * be too long.
-	 */
-	entry->endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 30000);
-
-	/*
-	 * Submit a query.  Since we don't use non-blocking mode, this also can
-	 * block.  But its risk is relatively small, so we ignore that for now.
-	 */
-	if (!PQsendQuery(entry->conn, query))
-	{
-		pgfdw_report_error(WARNING, NULL, entry->conn, false, query);
-		return false;
-	}
-
-	return true;
-}
-
-bool
-pgfdw_exec_cleanup_query_end(ConnCacheEntry *entry, const char *query,
-							 bool ignore_errors)
-{
-	PGresult   *result = NULL;
-	bool		timed_out;
-
-	/* Get the result of the query. */
-	if (pgfdw_get_cleanup_result(entry->conn, entry->endtime, &result,
-								 &timed_out))
-	{
-		if (timed_out)
-			ereport(WARNING,
-					(errmsg("could not get query result due to timeout"),
-					 query ? errcontext("remote SQL command: %s", query) : 0));
-		else
-			pgfdw_report_error(WARNING, NULL, entry->conn, false, query);
-
-		return false;
-	}
-
-	/* Issue a warning if not successful. */
-	if (PQresultStatus(result) != PGRES_COMMAND_OK)
-	{
-		pgfdw_report_error(WARNING, result, entry->conn, true, query);
-		return ignore_errors;
-	}
-	PQclear(result);
-
-	return true;
-}
-
 void
 pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel)
 {
 	char		sql[100];
 
-	if (toplevel)
-		snprintf(sql, sizeof(sql), "ABORT TRANSACTION");
-	else
-		snprintf(sql, sizeof(sql),
-				 "ROLLBACK TO SAVEPOINT s%d; RELEASE SAVEPOINT s%d",
-				 entry->xact_depth, entry->xact_depth);
-
+	CONSTRUCT_ABORT_COMMAND(sql, entry, toplevel);
 	pgfdw_abort_cleanup_with_sql(entry, sql, toplevel);
 }
 
@@ -369,7 +307,7 @@ pgfdw_commit_prepared(ConnCacheEntry *entry,
 		entry->changing_xact_state = true;
 		if (entry->parallel_commit)
 		{
-			if (pgfdw_exec_cleanup_query_begin(entry, sql))
+			if (pgfdw_exec_cleanup_query_begin(entry->conn, sql))
 				*pending_entries_commit_prepared =
 					lappend(*pending_entries_commit_prepared, entry);
 			return;
@@ -399,13 +337,23 @@ pgfdw_finish_commit_prepared_cleanup(List *pending_entries_commit_prepared)
 	foreach(lc, pending_entries_commit_prepared)
 	{
 		bool		success;
+		TimestampTz endtime;
 
 		entry = (ConnCacheEntry *) lfirst(lc);
 
 		Assert(entry->changing_xact_state);
 
+		/*
+		 * Set end time.  We do this now, not before issuing the command like
+		 * in normal mode, for the same reason as for the cancel_requested
+		 * entries.
+		 */
+		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(),
+											  CONNECTION_CLEANUP_TIMEOUT);
+
 		PreparedXactCommand(sql, "COMMIT PREPARED", entry);
-		success = pgfdw_exec_cleanup_query_end(entry, sql, false);
+		success = pgfdw_exec_cleanup_query_end(entry->conn, sql, endtime,
+											   false, false);
 		entry->changing_xact_state = false;
 
 		if (success)
