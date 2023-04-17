@@ -43,8 +43,7 @@ DO $d$
             FOREIGN DATA WRAPPER postgres_fdw
             OPTIONS (dbname '$$||current_database()||$$',
                      port '$$||current_setting('port')||$$',
-                     application_name 'pgfdw_plus_loopback2',
-                     parallel_commit 'on'
+                     application_name 'pgfdw_plus_loopback2'
             )$$;
     END;
 $d$;
