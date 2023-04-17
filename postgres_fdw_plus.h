@@ -43,6 +43,7 @@ typedef struct ConnCacheEntry
 	bool		have_error;		/* have any subxacts aborted in this xact? */
 	bool		changing_xact_state;	/* xact state change in process */
 	bool		parallel_commit;	/* do we commit (sub)xacts in parallel? */
+	bool		parallel_abort;	/* do we abort (sub)xacts in parallel? */
 	bool		invalidated;	/* true if reconnect is pending */
 	bool		keep_connections;	/* setting value of keep_connections
 									 * server option */
@@ -53,11 +54,28 @@ typedef struct ConnCacheEntry
 
 	/* postgres_fdw_plus */
 	FullTransactionId fxid;
-	TimestampTz	endtime;	/* timestamp when to assume the connection
-							 * is dead */
 } ConnCacheEntry;
 
 extern HTAB *ConnectionHash;
+
+/*
+ * Milliseconds to wait to cancel an in-progress query or execute a cleanup
+ * query; if it takes longer than 30 seconds to do these, we assume the
+ * connection is dead.
+ */
+#define CONNECTION_CLEANUP_TIMEOUT	30000
+
+/* Macro for constructing abort command to be sent */
+#define CONSTRUCT_ABORT_COMMAND(sql, entry, toplevel) \
+	do { \
+		if (toplevel) \
+			snprintf((sql), sizeof(sql), \
+					 "ABORT TRANSACTION"); \
+		else \
+			snprintf((sql), sizeof(sql), \
+					 "ROLLBACK TO SAVEPOINT s%d; RELEASE SAVEPOINT s%d", \
+					 (entry)->xact_depth, (entry)->xact_depth); \
+	} while(0)
 
 /* option.c */
 extern void DefineCustomVariablesForPgFdwPlus(void);
@@ -70,19 +88,22 @@ extern void do_sql_command_end(PGconn *conn, const char *sql,
 extern void pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry);
 extern void pgfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
 extern bool pgfdw_cancel_query(PGconn *conn);
+extern bool pgfdw_cancel_query_begin(PGconn *conn);
+extern bool pgfdw_cancel_query_end(PGconn *conn, TimestampTz endtime,
+								   bool consume_input);
 extern bool pgfdw_exec_cleanup_query(PGconn *conn, const char *query,
 									 bool ignore_errors);
+extern bool pgfdw_exec_cleanup_query_begin(PGconn *conn, const char *query);
+extern bool pgfdw_exec_cleanup_query_end(PGconn *conn, const char *query,
+										 TimestampTz endtime,
+										 bool consume_input,
+										 bool ignore_errors);
 extern bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
 									 PGresult **result, bool *timed_out);
 extern void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
 extern void pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry,
 										 const char *sql, bool toplevel);
 
-extern bool pgfdw_exec_cleanup_query_begin(ConnCacheEntry *entry,
-										   const char *query);
-extern bool pgfdw_exec_cleanup_query_end(ConnCacheEntry *entry,
-										 const char *query,
-										 bool ignore_errors);
 extern bool pgfdw_xact_two_phase(XactEvent event);
 extern void pgfdw_prepare_xacts(ConnCacheEntry *entry,
 								List **pending_entries_prepare);
