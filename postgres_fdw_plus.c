@@ -257,7 +257,7 @@ pgfdw_xact_two_phase(XactEvent event)
 				case XACT_EVENT_COMMIT:
 					pgfdw_commit_prepared(entry,
 										  &pending_entries_commit_prepared);
-					if (entry->parallel_commit)
+					if (entry->parallel_commit && !pgfdw_skip_commit_phase)
 						continue;
 					break;
 
@@ -385,16 +385,6 @@ pgfdw_commit_prepared(ConnCacheEntry *entry,
 	 */
 	if (success)
 		pgfdw_deallocate_all(entry);
-
-	/*
-	 * If parallel_commit and pgfdw_skip_commit_phase are true, this connection
-	 * cache entry will not be used in this transaction.
-	 */
-	if (entry->parallel_commit && pgfdw_skip_commit_phase)
-	{
-		entry->fxid = InvalidFullTransactionId;
-		pgfdw_reset_xact_state(entry, true);
-	}
 }
 
 void

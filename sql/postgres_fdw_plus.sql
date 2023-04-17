@@ -44,7 +44,7 @@ DO $d$
             OPTIONS (dbname '$$||current_database()||$$',
                      port '$$||current_setting('port')||$$',
                      application_name 'pgfdw_plus_loopback2',
-					 parallel_commit 'on'
+                     parallel_commit 'on'
             )$$;
     END;
 $d$;
