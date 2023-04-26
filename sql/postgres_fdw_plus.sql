@@ -87,6 +87,19 @@ CREATE VIEW ftv AS SELECT * FROM t0 UNION ALL
   SELECT * FROM ft1 UNION ALL SELECT * FROM ft2;
 
 -- ===================================================================
+-- Test postgres_fdw.use_read_committed
+-- ===================================================================
+SET postgres_fdw.use_read_committed TO off;
+SELECT * FROM ft1, ft2;
+SET postgres_fdw.use_read_committed TO on;
+SELECT * FROM ft1, ft2;
+BEGIN;
+SELECT * FROM ft1;
+SET postgres_fdw.use_read_committed TO off;
+SELECT * FROM ft1 WHERE c1 IN (SELECT c1 FROM ft1);
+COMMIT;
+
+-- ===================================================================
 -- Test two phase commit
 -- ===================================================================
 SET postgres_fdw.two_phase_commit TO true;
@@ -101,7 +114,10 @@ COMMIT;
 SELECT split_part(query, '_', 1) FROM pg_stat_activity
     WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
 SELECT * FROM pg_prepared_xacts;
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 100;
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
 
 -- ROLLBACK command on local transaction causes foreign transactions to
@@ -114,7 +130,10 @@ ROLLBACK;
 SELECT split_part(query, '_', 1) FROM pg_stat_activity
     WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
 SELECT * FROM pg_prepared_xacts;
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 110;
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
 
 -- Failure of prepare phase on one of foreign servers causes
@@ -129,7 +148,10 @@ COMMIT;
 SELECT split_part(query, '_', 1) FROM pg_stat_activity
     WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
 SELECT * FROM pg_prepared_xacts;
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 120;
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
 
 -- Failure of prepare phase on the other foreign server causes
@@ -144,7 +166,10 @@ COMMIT;
 SELECT split_part(query, '_', 1) FROM pg_stat_activity
     WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
 SELECT * FROM pg_prepared_xacts;
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 130;
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
 
 -- two_phase_commit = on causes even read-only foreign transactions

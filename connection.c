@@ -211,6 +211,8 @@ GetConnection(UserMapping *user, bool will_prep_stmt, PgFdwConnState **state)
 									  pgfdw_inval_callback, (Datum) 0);
 	}
 
+	pgfdw_arrange_read_committed(xact_got_connection);
+
 	/* Set flag that we did GetConnection during the current transaction */
 	xact_got_connection = true;
 
@@ -758,6 +760,8 @@ begin_remote_xact(ConnCacheEntry *entry)
 			sql = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE";
 		else
 			sql = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ";
+		if (pgfdw_use_read_committed_in_xact && !IsolationUsesXactSnapshot())
+			sql = "START TRANSACTION ISOLATION LEVEL READ COMMITTED";
 		entry->changing_xact_state = true;
 		do_sql_command(entry->conn, sql);
 		entry->xact_depth = 1;

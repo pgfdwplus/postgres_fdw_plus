@@ -92,6 +92,24 @@ This setting has no effect if postgres_fdw.two_phase_commit is false.
 
 Any users can change this setting.
 
+### postgres_fdw.use_read_committed (boolean)
+If false (default), remote transactions are started with either serializable
+or repeatable read isolation level, similar to postgres_fdw. However,
+if true, remote transactions will start with the read committed isolation
+level if the local transaction starts with the read committed.
+
+It is important to note that when using the read committed for remote
+transactions, multiple foreign scans in a single query are not allowed to
+ensure the query's result is consistent. If multiple foreign scans occur,
+the query fails with an error.
+
+Any users can change this setting. However, the decision to use
+the read committed for remote transactions is determined based on
+the value of the postgres_fdw.use_read_committed parameter
+when the first remote transaction is started in a local transaction.
+This decision remains the same throughout the local transaction,
+even if the postgres_fdw.use_read_committed is changed during that time. 
+
 ## Functions
 
 ### SETOF resolve_foreign_prepared_xacts pgfdw_plus_resolve_foreign_prepared_xacts (server name, force boolean)
