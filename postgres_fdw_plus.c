@@ -15,6 +15,30 @@
 bool		pgfdw_two_phase_commit = false;
 bool		pgfdw_skip_commit_phase = false;
 bool		pgfdw_track_xact_commits = true;
+bool		pgfdw_use_read_committed = false;
+
+/*
+ * Global variables
+ */
+
+/*
+ * This flag indicates whether the current local transaction uses
+ * the read committed isolation level when starting remote transactions.
+ * The flag is set when the first remote transaction is started and is
+ * based on the value of the pgfdw_use_read_committed parameter.
+ * The flag remains constant for the duration of the local transaction,
+ * even if pgfdw_use_read_committed is changed during that time.
+ */
+bool		pgfdw_use_read_committed_in_xact = false;
+
+/*
+ * This saves the command ID that was retrieved the last time a PGconn
+ * was obtained, i.e., GetConnection() is called. The saved command ID
+ * is used to detect cases where a single local query requires multiple
+ * accesses to remote servers, which is not allowed when the read committed
+ * isolation level is used for remote transactions.
+ */
+CommandId	pgfdw_last_cid = InvalidCommandId;
 
 /*
  * Define GUC parameters for postgres_fdw_plus.
@@ -49,6 +73,17 @@ DefineCustomVariablesForPgFdwPlus(void)
 							 NULL,
 							 &pgfdw_track_xact_commits,
 							 true,
+							 PGC_USERSET,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
+
+	DefineCustomBoolVariable("postgres_fdw.use_read_committed",
+							 "Use READ COMMITTED isolation level on remote transactions.",
+							 NULL,
+							 &pgfdw_use_read_committed,
+							 false,
 							 PGC_USERSET,
 							 0,
 							 NULL,
@@ -131,6 +166,40 @@ pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry, const char *sql,
 
 	/* Disarm changing_xact_state if it all worked */
 	entry->changing_xact_state = false;
+}
+
+void
+pgfdw_arrange_read_committed(bool xact_got_connection)
+{
+	/*
+	 * Determine whether the current local transaction uses the read
+	 * committed isolation level when starting remote transactions.
+	 */
+	if (!xact_got_connection)
+	{
+		pgfdw_use_read_committed_in_xact = pgfdw_use_read_committed;
+		pgfdw_last_cid = InvalidCommandId;
+	}
+
+	/*
+	 * When using the read committed isolation level for remote transactions,
+	 * a single query should perform only one foreign scan to maintain
+	 * consistency. If a query performs multiple foreign scans, it triggers
+	 * an error. This is detected by checking how many times GetConnection()
+	 * is called with the same command ID.
+	 */
+	if (pgfdw_use_read_committed_in_xact)
+	{
+		CommandId	cid = GetCurrentCommandId(true);
+
+		if (pgfdw_last_cid == cid)
+			ereport(ERROR,
+					(errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
+					 errmsg("could not initiate multiple foreign scans in a single query"),
+					 errdetail("Multiple foreign scans are not allowed in a single query when using read committed level for remote transactions to maintain consistency."),
+					 errhint("Disable postgres_fdw.use_read_committed or modify query to perform only a single foreign scan.")));
+		pgfdw_last_cid = cid;
+	}
 }
 
 bool

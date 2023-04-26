@@ -74,6 +74,32 @@ CREATE FOREIGN TABLE ft2 (c1 int) SERVER pgfdw_plus_loopback2
 CREATE VIEW ftv AS SELECT * FROM t0 UNION ALL
   SELECT * FROM ft1 UNION ALL SELECT * FROM ft2;
 -- ===================================================================
+-- Test postgres_fdw.use_read_committed
+-- ===================================================================
+SET postgres_fdw.use_read_committed TO off;
+SELECT * FROM ft1, ft2;
+ c1 | c1 
+----+----
+(0 rows)
+
+SET postgres_fdw.use_read_committed TO on;
+SELECT * FROM ft1, ft2;
+ERROR:  could not initiate multiple foreign scans in a single query
+DETAIL:  Multiple foreign scans are not allowed in a single query when using read committed level for remote transactions to maintain consistency.
+HINT:  Disable postgres_fdw.use_read_committed or modify query to perform only a single foreign scan.
+BEGIN;
+SELECT * FROM ft1;
+ c1 
+----
+(0 rows)
+
+SET postgres_fdw.use_read_committed TO off;
+SELECT * FROM ft1 WHERE c1 IN (SELECT c1 FROM ft1);
+ERROR:  could not initiate multiple foreign scans in a single query
+DETAIL:  Multiple foreign scans are not allowed in a single query when using read committed level for remote transactions to maintain consistency.
+HINT:  Disable postgres_fdw.use_read_committed or modify query to perform only a single foreign scan.
+COMMIT;
+-- ===================================================================
 -- Test two phase commit
 -- ===================================================================
 SET postgres_fdw.two_phase_commit TO true;
@@ -97,12 +123,15 @@ SELECT * FROM pg_prepared_xacts;
 -------------+-----+----------+-------+----------
 (0 rows)
 
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 100;
  count 
 -------
      3
 (1 row)
 
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
@@ -130,12 +159,15 @@ SELECT * FROM pg_prepared_xacts;
 -------------+-----+----------+-------+----------
 (0 rows)
 
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 110;
  count 
 -------
      0
 (1 row)
 
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
@@ -174,12 +206,15 @@ SELECT * FROM pg_prepared_xacts;
 -------------+-----+----------+-------+----------
 (0 rows)
 
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 120;
  count 
 -------
      0
 (1 row)
 
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------
@@ -219,12 +254,15 @@ SELECT * FROM pg_prepared_xacts;
 -------------+-----+----------+-------+----------
 (0 rows)
 
+BEGIN;
+SET LOCAL postgres_fdw.use_read_committed TO off;
 SELECT count(*) FROM ftv WHERE c1 = 130;
  count 
 -------
      0
 (1 row)
 
+COMMIT;
 SELECT array_length(umids, 1) FROM pgfdw_plus.xact_commits ORDER BY fxid;
  array_length 
 --------------

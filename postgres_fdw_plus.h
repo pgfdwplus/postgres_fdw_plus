@@ -13,6 +13,13 @@
 extern bool pgfdw_two_phase_commit;
 extern bool pgfdw_skip_commit_phase;
 extern bool pgfdw_track_xact_commits;
+extern bool pgfdw_use_read_committed;
+
+/*
+ * Global variables
+ */
+extern bool pgfdw_use_read_committed_in_xact;
+extern CommandId pgfdw_last_cid;
 
 /*
  * Connection cache hash table entry
@@ -104,6 +111,7 @@ extern void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
 extern void pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry,
 										 const char *sql, bool toplevel);
 
+extern void pgfdw_arrange_read_committed(bool xact_got_connection);
 extern bool pgfdw_xact_two_phase(XactEvent event);
 extern void pgfdw_prepare_xacts(ConnCacheEntry *entry,
 								List **pending_entries_prepare);
