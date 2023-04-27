@@ -1,0 +1,137 @@
+From 68d67c0d38e68312ffe5e5316ed7b7d37b7de17c Mon Sep 17 00:00:00 2001
+From: Fujii Masao <fujii@postgresql.org>
+Date: Thu, 27 Apr 2023 19:50:27 +0900
+Subject: [PATCH] Add GUC parameter for Atomic Visibility feature.
+
+This commit introduces a new GUC parameter called "atomic_visibility".
+When this parameter is enabled, PostgreSQL ensures that taking
+new snapshots and processing of two-phase commits are performed
+serially using a lock. This guarantees that no snapshot is taken during
+two-phase commit, when the status of transactions across different
+PostgreSQL servers is not consistent. This mechanism is essential
+to support the Atomic Visibility feature.
+---
+ src/backend/access/transam/xact.c   | 10 ++++++++++
+ src/backend/storage/ipc/procarray.c | 15 +++++++++++++++
+ src/backend/tcop/postgres.c         |  1 +
+ src/backend/utils/misc/guc_tables.c | 10 ++++++++++
+ src/include/access/xact.h           |  2 ++
+ 5 files changed, 38 insertions(+)
+
+diff --git a/src/backend/access/transam/xact.c b/src/backend/access/transam/xact.c
+index 6a837e1539..482fad6990 100644
+--- a/src/backend/access/transam/xact.c
++++ b/src/backend/access/transam/xact.c
+@@ -86,6 +86,8 @@ bool		XactDeferrable;
+ 
+ int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
+ 
++bool		atomic_visibility = false;
++
+ /*
+  * CheckXidAlive is a xid value pointing to a possibly ongoing (sub)
+  * transaction.  Currently, it is used in logical decoding.  It's possible
+@@ -2541,6 +2543,14 @@ PrepareTransaction(void)
+ 							GetUserId(), MyDatabaseId);
+ 	prepareGID = NULL;
+ 
++	if (atomic_visibility)
++	{
++		LOCKTAG		tag;
++
++		SET_LOCKTAG_ADVISORY(tag, MyDatabaseId, PG_INT32_MAX, PG_INT32_MAX, 2);
++		(void) LockAcquire(&tag, RowExclusiveLock, false, false);
++	}
++
+ 	/*
+ 	 * Collect data for the 2PC state file.  Note that in general, no actual
+ 	 * state change should happen in the called modules during this step,
+diff --git a/src/backend/storage/ipc/procarray.c b/src/backend/storage/ipc/procarray.c
+index 80153fb250..19bc863933 100644
+--- a/src/backend/storage/ipc/procarray.c
++++ b/src/backend/storage/ipc/procarray.c
+@@ -2205,6 +2205,9 @@ GetSnapshotData(Snapshot snapshot)
+ 	TransactionId replication_slot_xmin = InvalidTransactionId;
+ 	TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
+ 
++	LOCKTAG		tag;
++	bool		gtx_locked = false;
++
+ 	Assert(snapshot != NULL);
+ 
+ 	/*
+@@ -2251,6 +2254,15 @@ GetSnapshotData(Snapshot snapshot)
+ 		return snapshot;
+ 	}
+ 
++	if (atomic_visibility && MyDatabaseId != InvalidOid)
++	{
++		LWLockRelease(ProcArrayLock);
++		gtx_locked = true;
++		SET_LOCKTAG_ADVISORY(tag, MyDatabaseId, PG_INT32_MAX, PG_INT32_MAX, 2);
++		(void) LockAcquire(&tag, ShareLock, false, false);
++		LWLockAcquire(ProcArrayLock, LW_SHARED);
++	}
++
+ 	latest_completed = ShmemVariableCache->latestCompletedXid;
+ 	mypgxactoff = MyProc->pgxactoff;
+ 	myxid = other_xids[mypgxactoff];
+@@ -2430,6 +2442,9 @@ GetSnapshotData(Snapshot snapshot)
+ 
+ 	LWLockRelease(ProcArrayLock);
+ 
++	if (gtx_locked)
++		LockRelease(&tag, ShareLock, false);
++
+ 	/* maintain state for GlobalVis* */
+ 	{
+ 		TransactionId def_vis_xid;
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index 01b6cc1f7d..c4595ff2da 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -64,6 +64,7 @@
+ #include "storage/ipc.h"
+ #include "storage/pmsignal.h"
+ #include "storage/proc.h"
++#include "storage/procarray.h"
+ #include "storage/procsignal.h"
+ #include "storage/sinval.h"
+ #include "tcop/fastpath.h"
+diff --git a/src/backend/utils/misc/guc_tables.c b/src/backend/utils/misc/guc_tables.c
+index 2f42cebaf6..dddce0fd3d 100644
+--- a/src/backend/utils/misc/guc_tables.c
++++ b/src/backend/utils/misc/guc_tables.c
+@@ -1587,6 +1587,16 @@ struct config_bool ConfigureNamesBool[] =
+ 		false,
+ 		check_transaction_deferrable, NULL, NULL
+ 	},
++	{
++		{"atomic_visibility", PGC_POSTMASTER, CLIENT_CONN_STATEMENT,
++		 gettext_noop("Enables Atomic Visibility."),
++		 NULL,
++		 GUC_NOT_IN_SAMPLE
++		},
++		&atomic_visibility,
++		false,
++		NULL, NULL, NULL
++	},
+ 	{
+ 		{"row_security", PGC_USERSET, CLIENT_CONN_STATEMENT,
+ 			gettext_noop("Enable row security."),
+diff --git a/src/include/access/xact.h b/src/include/access/xact.h
+index 7d3b9446e6..a7b8cd8f10 100644
+--- a/src/include/access/xact.h
++++ b/src/include/access/xact.h
+@@ -82,6 +82,8 @@ typedef enum
+ /* Synchronous commit level */
+ extern PGDLLIMPORT int synchronous_commit;
+ 
++extern bool	atomic_visibility;
++
+ /* used during logical streaming of a transaction */
+ extern PGDLLIMPORT TransactionId CheckXidAlive;
+ extern PGDLLIMPORT bool bsysscan;
+-- 
+2.40.0
+
