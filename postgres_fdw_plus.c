@@ -41,6 +41,13 @@ bool		pgfdw_use_read_committed_in_xact = false;
 CommandId	pgfdw_last_cid = InvalidCommandId;
 
 /*
+ * This list has ConnCacheEntry that are parallel_commit=on and have already
+ * sent PREPARED TRANSACTION. On a transaction abort, PQgetResult should be
+ * called to these connections before sending ROLLBACK PREPARED.
+ */
+List	   *pending_entries_prepare = NIL;
+
+/*
  * Define GUC parameters for postgres_fdw_plus.
  */
 void
@@ -208,7 +215,6 @@ pgfdw_xact_two_phase(XactEvent event)
 	HASH_SEQ_STATUS scan;
 	ConnCacheEntry *entry;
 	List	   *umids = NIL;
-	List	   *pending_entries_prepare = NIL;
 	List	   *pending_entries_commit_prepared = NIL;
 
 	/* Quick exit if not two-phase commit case */
@@ -224,6 +230,16 @@ pgfdw_xact_two_phase(XactEvent event)
 			return false;
 		default:
 			break;
+	}
+
+	if ((event == XACT_EVENT_ABORT || event == XACT_EVENT_PARALLEL_ABORT)
+		&& pending_entries_prepare)
+		pgfdw_cleanup_pending_entries();
+
+	if (pending_entries_prepare)
+	{
+		list_free(pending_entries_prepare);
+		pending_entries_prepare = NIL;
 	}
 
 	/*
@@ -255,11 +271,10 @@ pgfdw_xact_two_phase(XactEvent event)
 					 */
 					pgfdw_reject_incomplete_xact_state_change(entry);
 
-					pgfdw_prepare_xacts(entry, &pending_entries_prepare);
+					pgfdw_prepare_xacts(entry);
 					if (pgfdw_track_xact_commits)
 						umids = lappend_oid(umids, (Oid) entry->key);
 					continue;
-
 				case XACT_EVENT_PARALLEL_COMMIT:
 				case XACT_EVENT_COMMIT:
 					pgfdw_commit_prepared(entry,
@@ -290,7 +305,7 @@ pgfdw_xact_two_phase(XactEvent event)
 	{
 		Assert(event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
 			   event == XACT_EVENT_PRE_COMMIT);
-		pgfdw_finish_prepare_cleanup(pending_entries_prepare);
+		pgfdw_finish_prepare_cleanup();
 	}
 
 	if (pending_entries_commit_prepared)
@@ -311,7 +326,7 @@ pgfdw_xact_two_phase(XactEvent event)
 }
 
 void
-pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
+pgfdw_prepare_xacts(ConnCacheEntry *entry)
 {
 	char		sql[256];
 
@@ -324,7 +339,7 @@ pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 	if (entry->parallel_commit)
 	{
 		do_sql_command_begin(entry->conn, sql);
-		*pending_entries_prepare = lappend(*pending_entries_prepare, entry);
+		pending_entries_prepare = lappend(pending_entries_prepare, entry);
 		return;
 	}
 
@@ -333,7 +348,7 @@ pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 }
 
 void
-pgfdw_finish_prepare_cleanup(List *pending_entries_prepare)
+pgfdw_finish_prepare_cleanup(void)
 {
 	ConnCacheEntry *entry;
 	char		sql[256];
@@ -354,6 +369,35 @@ pgfdw_finish_prepare_cleanup(List *pending_entries_prepare)
 		PreparedXactCommand(sql, "PREPARE TRANSACTION", entry);
 		do_sql_command_end(entry->conn, sql, true);
 		entry->changing_xact_state = false;
+	}
+}
+
+void
+pgfdw_cleanup_pending_entries(void)
+{
+	ConnCacheEntry *entry;
+	char		sql[256];
+	ListCell   *lc;
+
+	foreach(lc, pending_entries_prepare)
+	{
+		TimestampTz endtime;
+		bool		success;
+
+		entry = (ConnCacheEntry *) lfirst(lc);
+
+		/* If this connection has problem or is cleaned up already, skip it */
+		if (PQstatus(entry->conn) != CONNECTION_OK ||
+			!entry->changing_xact_state)
+			continue;
+
+		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(),
+											  CONNECTION_CLEANUP_TIMEOUT);
+		PreparedXactCommand(sql, "ROLLBACK PREPARED", entry);
+		success = pgfdw_exec_cleanup_query_end(entry->conn, sql, endtime,
+											   true, false);
+		if (success)
+			entry->changing_xact_state = false;
 	}
 }
 

@@ -43,7 +43,8 @@ DO $d$
             FOREIGN DATA WRAPPER postgres_fdw
             OPTIONS (dbname '$$||current_database()||$$',
                      port '$$||current_setting('port')||$$',
-                     application_name 'pgfdw_plus_loopback2'
+                     application_name 'pgfdw_plus_loopback2',
+                     parallel_commit 'on'
             )$$;
     END;
 $d$;
@@ -250,9 +251,20 @@ SELECT count(*) FROM pgfdw_plus_foreign_prepared_xacts('pgfdw_plus_loopback2');
 SELECT count(*) FROM pgfdw_plus_vacuum_xact_commits();
 SELECT count(*) FROM pgfdw_plus.xact_commits;
 
--- Create one foreign prepared transaction that should be rollbacked
+-- Resolve another prepared transaction to keep the number of prepared transactions
+-- below max_prepared_xacts
+SELECT status, count(*)
+  FROM pgfdw_plus_resolve_foreign_prepared_xacts('pgfdw_plus_loopback2')
+  GROUP BY status ORDER BY status;
+SELECT count(*) FROM pgfdw_plus_foreign_prepared_xacts('pgfdw_plus_loopback1');
+SELECT count(*) FROM pgfdw_plus_foreign_prepared_xacts('pgfdw_plus_loopback2');
+
+-- Create two foreign prepared transactions that should be rollbacked
 -- so as to test later whether pgfdw_plus_resolve_foreign_prepared_xacts_all()
--- can actually rollback it.
+-- can actually rollback them.
+-- Temporarily set parallel_commit to 'on' in pgfdw_plus_loopaback1 to surely
+-- create prepared transactions.
+ALTER SERVER pgfdw_plus_loopback1 OPTIONS (add parallel_commit 'on');
 BEGIN;
 INSERT INTO ft1 VALUES (210);
 INSERT INTO ft2 VALUES (210);
@@ -265,6 +277,7 @@ INSERT INTO ft2 VALUES (220);
 SELECT pg_terminate_backend(pid, 10000) FROM pg_stat_activity
     WHERE application_name = 'pgfdw_plus_loopback2';
 COMMIT;
+ALTER SERVER pgfdw_plus_loopback1 OPTIONS (drop parallel_commit);
 
 -- All foreign prepared transactions are resolved and xact_commits
 -- should be empty.

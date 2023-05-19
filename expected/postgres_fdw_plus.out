@@ -38,7 +38,8 @@ DO $d$
             FOREIGN DATA WRAPPER postgres_fdw
             OPTIONS (dbname '$$||current_database()||$$',
                      port '$$||current_setting('port')||$$',
-                     application_name 'pgfdw_plus_loopback2'
+                     application_name 'pgfdw_plus_loopback2',
+                     parallel_commit 'on'
             )$$;
     END;
 $d$;
@@ -453,9 +454,34 @@ SELECT count(*) FROM pgfdw_plus.xact_commits;
      1
 (1 row)
 
--- Create one foreign prepared transaction that should be rollbacked
+-- Resolve another prepared transaction to keep the number of prepared transactions
+-- below max_prepared_xacts
+SELECT status, count(*)
+  FROM pgfdw_plus_resolve_foreign_prepared_xacts('pgfdw_plus_loopback2')
+  GROUP BY status ORDER BY status;
+  status   | count 
+-----------+-------
+ committed |     1
+(1 row)
+
+SELECT count(*) FROM pgfdw_plus_foreign_prepared_xacts('pgfdw_plus_loopback1');
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM pgfdw_plus_foreign_prepared_xacts('pgfdw_plus_loopback2');
+ count 
+-------
+     0
+(1 row)
+
+-- Create two foreign prepared transactions that should be rollbacked
 -- so as to test later whether pgfdw_plus_resolve_foreign_prepared_xacts_all()
--- can actually rollback it.
+-- can actually rollback them.
+-- Temporarily set parallel_commit to 'on' in pgfdw_plus_loopaback1 to surely
+-- create prepared transactions.
+ALTER SERVER pgfdw_plus_loopback1 OPTIONS (add parallel_commit 'on');
 BEGIN;
 INSERT INTO ft1 VALUES (210);
 INSERT INTO ft2 VALUES (210);
@@ -486,15 +512,15 @@ ERROR:  FATAL:  terminating connection due to administrator command
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.
+ALTER SERVER pgfdw_plus_loopback1 OPTIONS (drop parallel_commit);
 -- All foreign prepared transactions are resolved and xact_commits
 -- should be empty.
 SELECT status, count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all()
   GROUP BY status ORDER BY status;
-  status   | count 
------------+-------
- aborted   |     1
- committed |     1
-(2 rows)
+ status  | count 
+---------+-------
+ aborted |     2
+(1 row)
 
 SELECT count(*) FROM pgfdw_plus_foreign_prepared_xacts('pgfdw_plus_loopback1');
  count 
