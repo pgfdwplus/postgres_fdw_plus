@@ -61,7 +61,7 @@ typedef struct ConnCacheEntry
 	bool		have_error;		/* have any subxacts aborted in this xact? */
 	bool		changing_xact_state;	/* xact state change in process */
 	bool		parallel_commit;	/* do we commit (sub)xacts in parallel? */
-	bool		parallel_abort;	/* do we abort (sub)xacts in parallel? */
+	bool		parallel_abort; /* do we abort (sub)xacts in parallel? */
 	bool		invalidated;	/* true if reconnect is pending */
 	bool		keep_connections;	/* setting value of keep_connections
 									 * server option */
@@ -402,7 +402,7 @@ pgfdw_security_check(const char **keywords, const char **values, UserMapping *us
 
 #ifdef ENABLE_GSS
 	/* Connected via GSSAPI with delegated credentials- all good. */
-	if (PQconnectionUsedGSSAPI(conn) && be_gssapi_get_deleg(MyProcPort))
+	if (PQconnectionUsedGSSAPI(conn) && be_gssapi_get_delegation(MyProcPort))
 		return;
 #endif
 
@@ -612,7 +612,7 @@ check_conn_params(const char **keywords, const char **values, UserMapping *user)
 
 #ifdef ENABLE_GSS
 	/* ok if the user provided their own delegated credentials */
-	if (be_gssapi_get_deleg(MyProcPort))
+	if (be_gssapi_get_delegation(MyProcPort))
 		return;
 #endif
 
@@ -1686,7 +1686,7 @@ pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel)
  *
  * Returns true if the abort command or cancel request is successfully issued,
  * false otherwise.  If the abort command is successfully issued, the given
- * connection cache entry is appended to *pending_entries.  Othewise, if the
+ * connection cache entry is appended to *pending_entries.  Otherwise, if the
  * cancel request is successfully issued, it is appended to *cancel_requested.
  */
 static bool
