@@ -215,11 +215,12 @@ pgfdw_xact_two_phase(XactEvent event)
 	HASH_SEQ_STATUS scan;
 	ConnCacheEntry *entry;
 	List	   *umids = NIL;
+	static List *pending_entries_prepare = NIL;
 	List	   *pending_entries_commit_prepared = NIL;
 
-	/* Quick exit if not two-phase commit case */
 	switch (event)
 	{
+		/* Quick exit if not two-phase commit case */
 		case XACT_EVENT_PARALLEL_PRE_COMMIT:
 		case XACT_EVENT_PRE_COMMIT:
 			if (!pgfdw_two_phase_commit)
@@ -228,19 +229,22 @@ pgfdw_xact_two_phase(XactEvent event)
 		case XACT_EVENT_PRE_PREPARE:
 		case XACT_EVENT_PREPARE:
 			return false;
+		/* Entries in the pending_entries_prepare are parallel_commit=on and
+		 * have already sent PREPARE TRANSACTION, however, PQgetResult might
+		 * still not be called to some of them. It is necessary to call
+		 * PQgetResult before sending ROLLBACK PREPARED.
+		 */
+		case XACT_EVENT_ABORT:
+		case XACT_EVENT_PARALLEL_ABORT:
+			if (pending_entries_prepare)
+				pgfdw_cleanup_pending_entries(pending_entries_prepare);
+			break;
 		default:
 			break;
 	}
 
-	if ((event == XACT_EVENT_ABORT || event == XACT_EVENT_PARALLEL_ABORT)
-		&& pending_entries_prepare)
-		pgfdw_cleanup_pending_entries();
-
 	if (pending_entries_prepare)
-	{
-		list_free(pending_entries_prepare);
 		pending_entries_prepare = NIL;
-	}
 
 	/*
 	 * Scan all connection cache entries to find open remote transactions, and
@@ -271,7 +275,7 @@ pgfdw_xact_two_phase(XactEvent event)
 					 */
 					pgfdw_reject_incomplete_xact_state_change(entry);
 
-					pgfdw_prepare_xacts(entry);
+					pgfdw_prepare_xacts(entry, &pending_entries_prepare);
 					if (pgfdw_track_xact_commits)
 						umids = lappend_oid(umids, (Oid) entry->key);
 					continue;
@@ -305,7 +309,7 @@ pgfdw_xact_two_phase(XactEvent event)
 	{
 		Assert(event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
 			   event == XACT_EVENT_PRE_COMMIT);
-		pgfdw_finish_prepare_cleanup();
+		pgfdw_finish_prepare_cleanup(pending_entries_prepare);
 	}
 
 	if (pending_entries_commit_prepared)
@@ -326,7 +330,7 @@ pgfdw_xact_two_phase(XactEvent event)
 }
 
 void
-pgfdw_prepare_xacts(ConnCacheEntry *entry)
+pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 {
 	char		sql[256];
 
@@ -339,7 +343,7 @@ pgfdw_prepare_xacts(ConnCacheEntry *entry)
 	if (entry->parallel_commit)
 	{
 		do_sql_command_begin(entry->conn, sql);
-		pending_entries_prepare = lappend(pending_entries_prepare, entry);
+		*pending_entries_prepare = lappend(*pending_entries_prepare, entry);
 		return;
 	}
 
@@ -348,7 +352,7 @@ pgfdw_prepare_xacts(ConnCacheEntry *entry)
 }
 
 void
-pgfdw_finish_prepare_cleanup(void)
+pgfdw_finish_prepare_cleanup(List *pending_entries_prepare)
 {
 	ConnCacheEntry *entry;
 	char		sql[256];
@@ -373,7 +377,7 @@ pgfdw_finish_prepare_cleanup(void)
 }
 
 void
-pgfdw_cleanup_pending_entries(void)
+pgfdw_cleanup_pending_entries(List *pending_entries_prepare)
 {
 	ConnCacheEntry *entry;
 	char		sql[256];
@@ -393,7 +397,7 @@ pgfdw_cleanup_pending_entries(void)
 
 		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(),
 											  CONNECTION_CLEANUP_TIMEOUT);
-		PreparedXactCommand(sql, "ROLLBACK PREPARED", entry);
+		PreparedXactCommand(sql, "PREPARE TRANSACTION", entry);
 		success = pgfdw_exec_cleanup_query_end(entry->conn, sql, endtime,
 											   true, false);
 		if (success)
