@@ -229,13 +229,16 @@ pgfdw_xact_two_phase(XactEvent event)
 		case XACT_EVENT_PRE_PREPARE:
 		case XACT_EVENT_PREPARE:
 			return false;
-		/* Entries in the pending_entries_prepare are parallel_commit=on and
+		/*
+		 * Entries in the pending_entries_prepare are parallel_commit=on and
 		 * have already sent PREPARE TRANSACTION, however, PQgetResult might
 		 * still not be called to some of them. It is necessary to call
 		 * PQgetResult before sending ROLLBACK PREPARED.
 		 */
 		case XACT_EVENT_ABORT:
 		case XACT_EVENT_PARALLEL_ABORT:
+			if (!pgfdw_two_phase_commit)
+				return false;
 			if (pending_entries_prepare)
 				pgfdw_cleanup_pending_entries(pending_entries_prepare);
 			break;
