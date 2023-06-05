@@ -41,13 +41,6 @@ bool		pgfdw_use_read_committed_in_xact = false;
 CommandId	pgfdw_last_cid = InvalidCommandId;
 
 /*
- * This list has ConnCacheEntry that are parallel_commit=on and have already
- * sent PREPARED TRANSACTION. On a transaction abort, PQgetResult should be
- * called to these connections before sending ROLLBACK PREPARED.
- */
-List	   *pending_entries_prepare = NIL;
-
-/*
  * Define GUC parameters for postgres_fdw_plus.
  */
 void
@@ -230,24 +223,30 @@ pgfdw_xact_two_phase(XactEvent event)
 		case XACT_EVENT_PREPARE:
 			return false;
 		/*
-		 * Entries in the pending_entries_prepare are parallel_commit=on and
-		 * have already sent PREPARE TRANSACTION, however, PQgetResult might
-		 * still not be called to some of them. It is necessary to call
-		 * PQgetResult before sending ROLLBACK PREPARED.
+		 * When the event is XACT_EVENT_ABORT or XACT_EVENT_PARALLEL_ABORT,
+		 * it's possible that there are pending connection entries which
+		 * sent PREPARE TRANSACTION commands to remote servers but their
+		 * responses haven't been received yet. This situation can occur if,
+		 * for example, an error is raised during the execution of
+		 * PREPARE TRANSACTION commands in pgfdw_xact_two_phase() with
+		 * parallel_commit = on. To ensure proper handling, we make an effort
+		 * to receive these responses before issuing ROLLBACK PREPARED
+		 * commands. This is necessary because until we receive all the results
+		 * from the last command, like ROLLBACK PREPARED, we cannot issue any
+		 * new commands.
 		 */
 		case XACT_EVENT_ABORT:
 		case XACT_EVENT_PARALLEL_ABORT:
 			if (!pgfdw_two_phase_commit)
 				return false;
 			if (pending_entries_prepare)
-				pgfdw_cleanup_pending_entries(pending_entries_prepare);
+				pgfdw_cleanup_pending_entries(&pending_entries_prepare);
 			break;
 		default:
 			break;
 	}
 
-	if (pending_entries_prepare)
-		pending_entries_prepare = NIL;
+	Assert(!pending_entries_prepare);
 
 	/*
 	 * Scan all connection cache entries to find open remote transactions, and
@@ -312,7 +311,7 @@ pgfdw_xact_two_phase(XactEvent event)
 	{
 		Assert(event == XACT_EVENT_PARALLEL_PRE_COMMIT ||
 			   event == XACT_EVENT_PRE_COMMIT);
-		pgfdw_finish_prepare_cleanup(pending_entries_prepare);
+		pgfdw_finish_prepare_cleanup(&pending_entries_prepare);
 	}
 
 	if (pending_entries_commit_prepared)
@@ -355,15 +354,15 @@ pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 }
 
 void
-pgfdw_finish_prepare_cleanup(List *pending_entries_prepare)
+pgfdw_finish_prepare_cleanup(List **pending_entries_prepare)
 {
 	ConnCacheEntry *entry;
 	char		sql[256];
 	ListCell   *lc;
 
-	Assert(pending_entries_prepare);
+	Assert(*pending_entries_prepare);
 
-	foreach(lc, pending_entries_prepare)
+	foreach(lc, *pending_entries_prepare)
 	{
 		entry = (ConnCacheEntry *) lfirst(lc);
 
@@ -377,16 +376,18 @@ pgfdw_finish_prepare_cleanup(List *pending_entries_prepare)
 		do_sql_command_end(entry->conn, sql, true);
 		entry->changing_xact_state = false;
 	}
+
+	*pending_entries_prepare = NIL;
 }
 
 void
-pgfdw_cleanup_pending_entries(List *pending_entries_prepare)
+pgfdw_cleanup_pending_entries(List **pending_entries_prepare)
 {
 	ConnCacheEntry *entry;
 	char		sql[256];
 	ListCell   *lc;
 
-	foreach(lc, pending_entries_prepare)
+	foreach(lc, *pending_entries_prepare)
 	{
 		TimestampTz endtime;
 		bool		success;
@@ -406,6 +407,8 @@ pgfdw_cleanup_pending_entries(List *pending_entries_prepare)
 		if (success)
 			entry->changing_xact_state = false;
 	}
+
+	*pending_entries_prepare = NIL;
 }
 
 void
