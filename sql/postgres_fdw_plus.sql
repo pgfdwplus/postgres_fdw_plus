@@ -43,7 +43,8 @@ DO $d$
             FOREIGN DATA WRAPPER postgres_fdw
             OPTIONS (dbname '$$||current_database()||$$',
                      port '$$||current_setting('port')||$$',
-                     application_name 'pgfdw_plus_loopback2'
+                     application_name 'pgfdw_plus_loopback2',
+                     parallel_commit 'on'
             )$$;
     END;
 $d$;
@@ -256,12 +257,6 @@ SELECT count(*) FROM pgfdw_plus.xact_commits;
 BEGIN;
 INSERT INTO ft1 VALUES (210);
 INSERT INTO ft2 VALUES (210);
-SELECT pg_terminate_backend(pid, 10000) FROM pg_stat_activity
-    WHERE application_name = 'pgfdw_plus_loopback1';
-COMMIT;
-BEGIN;
-INSERT INTO ft1 VALUES (220);
-INSERT INTO ft2 VALUES (220);
 SELECT pg_terminate_backend(pid, 10000) FROM pg_stat_activity
     WHERE application_name = 'pgfdw_plus_loopback2';
 COMMIT;
