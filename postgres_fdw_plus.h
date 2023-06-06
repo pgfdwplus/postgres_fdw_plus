@@ -116,7 +116,6 @@ extern bool pgfdw_xact_two_phase(XactEvent event);
 extern void pgfdw_prepare_xacts(ConnCacheEntry *entry,
 								List **pending_entries_prepare);
 extern void pgfdw_finish_prepare_cleanup(List **pending_entries_prepare);
-extern void pgfdw_cleanup_pending_entries(List **pending_entries_prepare);
 extern void pgfdw_commit_prepared(ConnCacheEntry *entry,
 								  List **pending_entries_commit_prepared);
 extern void pgfdw_finish_commit_prepared_cleanup(

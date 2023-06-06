@@ -41,6 +41,11 @@ bool		pgfdw_use_read_committed_in_xact = false;
 CommandId	pgfdw_last_cid = InvalidCommandId;
 
 /*
+ * Private functions
+ */
+static void pgfdw_cleanup_pending_entries(List **pending_entries_prepare);
+
+/*
  * Define GUC parameters for postgres_fdw_plus.
  */
 void
@@ -281,6 +286,7 @@ pgfdw_xact_two_phase(XactEvent event)
 					if (pgfdw_track_xact_commits)
 						umids = lappend_oid(umids, (Oid) entry->key);
 					continue;
+
 				case XACT_EVENT_PARALLEL_COMMIT:
 				case XACT_EVENT_COMMIT:
 					pgfdw_commit_prepared(entry,
@@ -380,12 +386,14 @@ pgfdw_finish_prepare_cleanup(List **pending_entries_prepare)
 	*pending_entries_prepare = NIL;
 }
 
-void
+static void
 pgfdw_cleanup_pending_entries(List **pending_entries_prepare)
 {
 	ConnCacheEntry *entry;
 	char		sql[256];
 	ListCell   *lc;
+
+	Assert(*pending_entries_prepare);
 
 	foreach(lc, *pending_entries_prepare)
 	{
