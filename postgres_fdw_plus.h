@@ -110,6 +110,12 @@ extern bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
 extern void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
 extern void pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry,
 										 const char *sql, bool toplevel);
+extern bool pgfdw_abort_cleanup_begin(ConnCacheEntry *entry, bool toplevel,
+									  List **pending_entries,
+									  List **cancel_requested);
+extern void pgfdw_finish_abort_cleanup(List *pending_entries,
+									   List *cancel_requested,
+									   bool toplevel);
 
 extern void pgfdw_arrange_read_committed(bool xact_got_connection);
 extern bool pgfdw_xact_two_phase(XactEvent event);
