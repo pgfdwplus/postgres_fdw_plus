@@ -151,16 +151,18 @@ static bool pgfdw_exec_cleanup_query_end(PGconn *conn, const char *query,
 static bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
 									 PGresult **result, bool *timed_out);
 static void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
-#endif	/* NOT_USED_IN_PGFDWPLUS */
 static bool pgfdw_abort_cleanup_begin(ConnCacheEntry *entry, bool toplevel,
 									  List **pending_entries,
 									  List **cancel_requested);
+#endif	/* NOT_USED_IN_PGFDWPLUS */
 static void pgfdw_finish_pre_commit_cleanup(List *pending_entries);
 static void pgfdw_finish_pre_subcommit_cleanup(List *pending_entries,
 											   int curlevel);
+#ifdef NOT_USED_IN_PGFDWPLUS
 static void pgfdw_finish_abort_cleanup(List *pending_entries,
 									   List *cancel_requested,
 									   bool toplevel);
+#endif	/* NOT_USED_IN_PGFDWPLUS */
 static void pgfdw_security_check(const char **keywords, const char **values,
 								 UserMapping *user, PGconn *conn);
 static bool UserMappingPasswordRequired(UserMapping *user);
@@ -1749,7 +1751,10 @@ pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel)
  * connection cache entry is appended to *pending_entries.  Otherwise, if the
  * cancel request is successfully issued, it is appended to *cancel_requested.
  */
+#ifdef NOT_USED_IN_PGFDWPLUS
 static bool
+#endif	/* NOT_USED_IN_PGFDWPLUS */
+bool
 pgfdw_abort_cleanup_begin(ConnCacheEntry *entry, bool toplevel,
 						  List **pending_entries, List **cancel_requested)
 {
@@ -1911,7 +1916,10 @@ pgfdw_finish_pre_subcommit_cleanup(List *pending_entries, int curlevel)
  * Finish abort cleanup of connections on each of which we've sent an abort
  * command or cancel request to the remote server.
  */
+#ifdef NOT_USED_IN_PGFDWPLUS
 static void
+#endif	/* NOT_USED_IN_PGFDWPLUS */
+void
 pgfdw_finish_abort_cleanup(List *pending_entries, List *cancel_requested,
 						   bool toplevel)
 {

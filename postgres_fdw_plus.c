@@ -215,6 +215,8 @@ pgfdw_xact_two_phase(XactEvent event)
 	List	   *umids = NIL;
 	static List *pending_entries_prepare = NIL;
 	List	   *pending_entries_commit_prepared = NIL;
+	List	   *pending_entries_rollback = NIL;
+	List	   *cancel_requested = NIL;
 
 	switch (event)
 	{
@@ -299,7 +301,16 @@ pgfdw_xact_two_phase(XactEvent event)
 				case XACT_EVENT_ABORT:
 					if (pgfdw_rollback_prepared(entry))
 						break;
-					pgfdw_abort_cleanup(entry, true);
+
+					if (entry->parallel_abort)
+					{
+						if (pgfdw_abort_cleanup_begin(entry, true,
+													  &pending_entries_rollback,
+													  &cancel_requested))
+							continue;
+					}
+					else
+						pgfdw_abort_cleanup(entry, true);
 					break;
 
 				default:
@@ -325,6 +336,14 @@ pgfdw_xact_two_phase(XactEvent event)
 		Assert(event == XACT_EVENT_PARALLEL_COMMIT ||
 			   event == XACT_EVENT_COMMIT);
 		pgfdw_finish_commit_prepared_cleanup(pending_entries_commit_prepared);
+	}
+
+	if (pending_entries_rollback || cancel_requested)
+	{
+		Assert(event == XACT_EVENT_PARALLEL_ABORT ||
+			   event == XACT_EVENT_ABORT);
+		pgfdw_finish_abort_cleanup(pending_entries_rollback, cancel_requested,
+								   true);
 	}
 
 	if (umids)
