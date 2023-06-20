@@ -3,23 +3,12 @@
 
 #include "access/xact.h"
 #include "miscadmin.h"
-#include "nodes/pg_list.h"
 #include "postgres_fdw/postgres_fdw.h"
-#include "utils/guc.h"
-
-/*
- * GUC parameters
- */
-extern bool pgfdw_two_phase_commit;
-extern bool pgfdw_skip_commit_phase;
-extern bool pgfdw_track_xact_commits;
-extern bool pgfdw_use_read_committed;
 
 /*
  * Global variables
  */
 extern bool pgfdw_use_read_committed_in_xact;
-extern CommandId pgfdw_last_cid;
 
 /*
  * Connection cache hash table entry
@@ -84,20 +73,13 @@ extern HTAB *ConnectionHash;
 					 (entry)->xact_depth, (entry)->xact_depth); \
 	} while(0)
 
-/* option.c */
-extern void DefineCustomVariablesForPgFdwPlus(void);
-
 /* connection.c */
 extern void do_sql_command_begin(PGconn *conn, const char *sql);
 extern void do_sql_command_end(PGconn *conn, const char *sql,
 							   bool consume_input);
-
 extern void pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry);
 extern void pgfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
 extern bool pgfdw_cancel_query(PGconn *conn);
-extern bool pgfdw_cancel_query_begin(PGconn *conn);
-extern bool pgfdw_cancel_query_end(PGconn *conn, TimestampTz endtime,
-								   bool consume_input);
 extern bool pgfdw_exec_cleanup_query(PGconn *conn, const char *query,
 									 bool ignore_errors);
 extern bool pgfdw_exec_cleanup_query_begin(PGconn *conn, const char *query);
@@ -105,11 +87,6 @@ extern bool pgfdw_exec_cleanup_query_end(PGconn *conn, const char *query,
 										 TimestampTz endtime,
 										 bool consume_input,
 										 bool ignore_errors);
-extern bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
-									 PGresult **result, bool *timed_out);
-extern void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
-extern void pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry,
-										 const char *sql, bool toplevel);
 extern bool pgfdw_abort_cleanup_begin(ConnCacheEntry *entry, bool toplevel,
 									  List **pending_entries,
 									  List **cancel_requested);
@@ -117,28 +94,10 @@ extern void pgfdw_finish_abort_cleanup(List *pending_entries,
 									   List *cancel_requested,
 									   bool toplevel);
 
+/* postgres_fdw_plus.c */
+extern void DefineCustomVariablesForPgFdwPlus(void);
+extern void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
 extern void pgfdw_arrange_read_committed(bool xact_got_connection);
 extern bool pgfdw_xact_two_phase(XactEvent event);
-extern void pgfdw_prepare_xacts(ConnCacheEntry *entry,
-								List **pending_entries_prepare);
-extern void pgfdw_finish_prepare_cleanup(List **pending_entries_prepare);
-extern void pgfdw_commit_prepared(ConnCacheEntry *entry,
-								  List **pending_entries_commit_prepared);
-extern void pgfdw_finish_commit_prepared_cleanup(
-	List *pending_entries_commit_prepared);
-extern bool pgfdw_rollback_prepared(ConnCacheEntry *entry);
-extern void pgfdw_deallocate_all(ConnCacheEntry *entry);
-extern void pgfdw_insert_xact_commits(List *umids);
-
-/*
- * Construct the prepared transaction command like PREPARE TRANSACTION
- * that's issued to the foreign server. It consists of full transaction ID,
- * user mapping OID, process ID and cluster name.
- */
-#define PreparedXactCommand(sql, cmd, entry)	\
-	snprintf(sql, sizeof(sql), "%s 'pgfdw_" UINT64_FORMAT "_%u_%d_%s'",	\
-			 cmd, U64FromFullTransactionId(entry->fxid),	\
-			 (Oid) entry->key, MyProcPid,	\
-			 (*cluster_name == '\0') ? "null" : cluster_name)
 
 #endif							/* POSTGRES_FDW_PLUS_H */
