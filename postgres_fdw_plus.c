@@ -218,40 +218,35 @@ pgfdw_xact_two_phase(XactEvent event)
 	List	   *pending_entries_rollback = NIL;
 	List	   *cancel_requested = NIL;
 
-	switch (event)
-	{
-		/* Quick exit if not two-phase commit case */
-		case XACT_EVENT_PARALLEL_PRE_COMMIT:
-		case XACT_EVENT_PRE_COMMIT:
-			if (!pgfdw_two_phase_commit)
-				return false;
-			break;
-		case XACT_EVENT_PRE_PREPARE:
-		case XACT_EVENT_PREPARE:
-			return false;
-		/*
-		 * When the event is XACT_EVENT_ABORT or XACT_EVENT_PARALLEL_ABORT,
-		 * it's possible that there are pending connection entries which
-		 * sent PREPARE TRANSACTION commands to remote servers but their
-		 * responses haven't been received yet. This situation can occur if,
-		 * for example, an error is raised during the execution of
-		 * PREPARE TRANSACTION commands in pgfdw_xact_two_phase() with
-		 * parallel_commit = on. To ensure proper handling, we make an effort
-		 * to receive these responses before issuing ROLLBACK PREPARED
-		 * commands. This is necessary because until we receive all the results
-		 * from the last command, like ROLLBACK PREPARED, we cannot issue any
-		 * new commands.
-		 */
-		case XACT_EVENT_ABORT:
-		case XACT_EVENT_PARALLEL_ABORT:
-			if (!pgfdw_two_phase_commit)
-				return false;
-			if (pending_entries_prepare)
-				pgfdw_cleanup_pending_entries(&pending_entries_prepare);
-			break;
-		default:
-			break;
-	}
+	/* Quick exit if not two-phase commit case */
+	if (!pgfdw_two_phase_commit)
+		return false;
+
+	/*
+	 * Quick exit if PREPARE is executed so that pgfdw_xact_callback()
+	 * can handle it promptly.
+	 */
+	if (event == XACT_EVENT_PRE_PREPARE ||
+		event == XACT_EVENT_PREPARE)
+		return false;
+
+	/*
+	 * When the event is XACT_EVENT_ABORT or XACT_EVENT_PARALLEL_ABORT,
+	 * it's possible that there are pending connection entries which
+	 * sent PREPARE TRANSACTION commands to remote servers but their
+	 * responses haven't been received yet. This situation can occur if,
+	 * for example, an error is raised during the execution of
+	 * PREPARE TRANSACTION commands in pgfdw_xact_two_phase() with
+	 * parallel_commit = on. To ensure proper handling, we make an effort
+	 * to receive these responses before issuing ROLLBACK PREPARED
+	 * commands. This is necessary because until we receive all the results
+	 * from the last command, like ROLLBACK PREPARED, we cannot issue any
+	 * new commands.
+	 */
+	if ((event == XACT_EVENT_ABORT ||
+		 event == XACT_EVENT_PARALLEL_ABORT) &&
+		pending_entries_prepare)
+		pgfdw_cleanup_pending_entries(&pending_entries_prepare);
 
 	Assert(!pending_entries_prepare);
 
