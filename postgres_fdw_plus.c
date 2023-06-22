@@ -12,15 +12,14 @@
 /*
  * GUC parameters
  */
-bool		pgfdw_two_phase_commit = false;
-bool		pgfdw_skip_commit_phase = false;
-bool		pgfdw_track_xact_commits = true;
-bool		pgfdw_use_read_committed = false;
+static bool		pgfdw_two_phase_commit = false;
+static bool		pgfdw_skip_commit_phase = false;
+static bool		pgfdw_track_xact_commits = true;
+static bool		pgfdw_use_read_committed = false;
 
 /*
  * Global variables
  */
-
 /*
  * This flag indicates whether the current local transaction uses
  * the read committed isolation level when starting remote transactions.
@@ -38,12 +37,38 @@ bool		pgfdw_use_read_committed_in_xact = false;
  * accesses to remote servers, which is not allowed when the read committed
  * isolation level is used for remote transactions.
  */
-CommandId	pgfdw_last_cid = InvalidCommandId;
+static CommandId	pgfdw_last_cid = InvalidCommandId;
+
+/*
+ * Private macros
+ */
+/*
+ * Construct the prepared transaction command like PREPARE TRANSACTION
+ * that's issued to the foreign server. It consists of full transaction ID,
+ * user mapping OID, process ID and cluster name.
+ */
+#define PreparedXactCommand(sql, cmd, entry)	\
+	snprintf(sql, sizeof(sql), "%s 'pgfdw_" UINT64_FORMAT "_%u_%d_%s'",	\
+			 cmd, U64FromFullTransactionId(entry->fxid),	\
+			 (Oid) entry->key, MyProcPid,	\
+			 (*cluster_name == '\0') ? "null" : cluster_name)
 
 /*
  * Private functions
  */
+static void pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry,
+										 const char *sql, bool toplevel);
+static void pgfdw_prepare_xacts(ConnCacheEntry *entry,
+								List **pending_entries_prepare);
+static void pgfdw_finish_prepare_cleanup(List **pending_entries_prepare);
 static void pgfdw_cleanup_pending_entries(List **pending_entries_prepare);
+static void pgfdw_commit_prepared(ConnCacheEntry *entry,
+								  List **pending_entries_commit_prepared);
+static void pgfdw_finish_commit_prepared_cleanup(
+	List *pending_entries_commit_prepared);
+static bool pgfdw_rollback_prepared(ConnCacheEntry *entry);
+static void pgfdw_deallocate_all(ConnCacheEntry *entry);
+static void pgfdw_insert_xact_commits(List *umids);
 
 /*
  * Define GUC parameters for postgres_fdw_plus.
@@ -110,7 +135,7 @@ pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel)
 	pgfdw_abort_cleanup_with_sql(entry, sql, toplevel);
 }
 
-void
+static void
 pgfdw_abort_cleanup_with_sql(ConnCacheEntry *entry, const char *sql,
 							 bool toplevel)
 {
@@ -351,7 +376,7 @@ pgfdw_xact_two_phase(XactEvent event)
 	return true;
 }
 
-void
+static void
 pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 {
 	char		sql[256];
@@ -373,7 +398,7 @@ pgfdw_prepare_xacts(ConnCacheEntry *entry, List **pending_entries_prepare)
 	entry->changing_xact_state = false;
 }
 
-void
+static void
 pgfdw_finish_prepare_cleanup(List **pending_entries_prepare)
 {
 	ConnCacheEntry *entry;
@@ -433,7 +458,7 @@ pgfdw_cleanup_pending_entries(List **pending_entries_prepare)
 	*pending_entries_prepare = NIL;
 }
 
-void
+static void
 pgfdw_commit_prepared(ConnCacheEntry *entry,
 					  List **pending_entries_commit_prepared)
 {
@@ -470,7 +495,7 @@ pgfdw_commit_prepared(ConnCacheEntry *entry,
 		pgfdw_deallocate_all(entry);
 }
 
-void
+static void
 pgfdw_finish_commit_prepared_cleanup(List *pending_entries_commit_prepared)
 {
 	ConnCacheEntry *entry;
@@ -509,7 +534,7 @@ pgfdw_finish_commit_prepared_cleanup(List *pending_entries_commit_prepared)
 	}
 }
 
-bool
+static bool
 pgfdw_rollback_prepared(ConnCacheEntry *entry)
 {
 	char		sql[256];
@@ -534,7 +559,7 @@ pgfdw_rollback_prepared(ConnCacheEntry *entry)
  * Do a DEALLOCATE ALL to make sure we get rid of all prepared statements.
  * See comments in pgfdw_xact_callback().
  */
-void
+static void
 pgfdw_deallocate_all(ConnCacheEntry *entry)
 {
 	if (entry->have_prep_stmt && entry->have_error)
@@ -564,7 +589,7 @@ pgfdw_deallocate_all(ConnCacheEntry *entry)
  * If the transaction is rollbacked, the record inserted by this function
  * obviously gets unvisiable.
  */
-void
+static void
 pgfdw_insert_xact_commits(List *umids)
 {
 	Datum		values[PGFDW_PLUS_XACT_COMMITS_COLS];

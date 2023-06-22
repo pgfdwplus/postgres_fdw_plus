@@ -138,9 +138,11 @@ static void pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
 static void pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry);
 static void pgfdw_reset_xact_state(ConnCacheEntry *entry, bool toplevel);
 static bool pgfdw_cancel_query(PGconn *conn);
+#endif	/* NOT_USED_IN_PGFDWPLUS */
 static bool pgfdw_cancel_query_begin(PGconn *conn);
 static bool pgfdw_cancel_query_end(PGconn *conn, TimestampTz endtime,
 								   bool consume_input);
+#ifdef NOT_USED_IN_PGFDWPLUS
 static bool pgfdw_exec_cleanup_query(PGconn *conn, const char *query,
 									 bool ignore_errors);
 static bool pgfdw_exec_cleanup_query_begin(PGconn *conn, const char *query);
@@ -148,8 +150,10 @@ static bool pgfdw_exec_cleanup_query_end(PGconn *conn, const char *query,
 										 TimestampTz endtime,
 										 bool consume_input,
 										 bool ignore_errors);
+#endif	/* NOT_USED_IN_PGFDWPLUS */
 static bool pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
 									 PGresult **result, bool *timed_out);
+#ifdef NOT_USED_IN_PGFDWPLUS
 static void pgfdw_abort_cleanup(ConnCacheEntry *entry, bool toplevel);
 static bool pgfdw_abort_cleanup_begin(ConnCacheEntry *entry, bool toplevel,
 									  List **pending_entries,
@@ -1403,10 +1407,7 @@ pgfdw_cancel_query(PGconn *conn)
 	return pgfdw_cancel_query_end(conn, endtime, false);
 }
 
-#ifdef NOT_USED_IN_PGFDWPLUS
 static bool
-#endif	/* NOT_USED_IN_PGFDWPLUS */
-bool
 pgfdw_cancel_query_begin(PGconn *conn)
 {
 	PGcancel   *cancel;
@@ -1433,10 +1434,7 @@ pgfdw_cancel_query_begin(PGconn *conn)
 	return true;
 }
 
-#ifdef NOT_USED_IN_PGFDWPLUS
 static bool
-#endif	/* NOT_USED_IN_PGFDWPLUS */
-bool
 pgfdw_cancel_query_end(PGconn *conn, TimestampTz endtime, bool consume_input)
 {
 	PGresult   *result = NULL;
