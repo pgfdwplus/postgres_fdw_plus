@@ -3,7 +3,7 @@
  * connection.c
  *		  Connection management functions for postgres_fdw
  *
- * Portions Copyright (c) 2012-2023, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2012-2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  contrib/postgres_fdw/connection.c
@@ -82,6 +82,11 @@ static unsigned int prep_stmt_number = 0;
 
 /* tracks whether any work is needed in callback functions */
 static bool xact_got_connection = false;
+
+/* custom wait event values, retrieved from shared memory */
+static uint32 pgfdw_we_cleanup_result = 0;
+static uint32 pgfdw_we_connect = 0;
+static uint32 pgfdw_we_get_result = 0;
 
 /*
  * Milliseconds to wait to cancel an in-progress query or execute a cleanup
@@ -181,6 +186,10 @@ GetConnection(UserMapping *user, bool will_prep_stmt, PgFdwConnState **state)
 	if (ConnectionHash == NULL)
 	{
 		HASHCTL		ctl;
+
+		if (pgfdw_we_get_result == 0)
+			pgfdw_we_get_result =
+				WaitEventExtensionNew("PostgresFdwGetResult");
 
 		ctl.keysize = sizeof(ConnCacheKey);
 		ctl.entrysize = sizeof(ConnCacheEntry);
@@ -527,10 +536,14 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
 		/* verify the set of connection parameters */
 		check_conn_params(keywords, values, user);
 
+		/* first time, allocate or get the custom wait event */
+		if (pgfdw_we_connect == 0)
+			pgfdw_we_connect = WaitEventExtensionNew("PostgresFdwConnect");
+
 		/* OK to make connection */
 		conn = libpqsrv_connect_params(keywords, values,
 									   false,	/* expand_dbname */
-									   WAIT_EVENT_EXTENSION);
+									   pgfdw_we_connect);
 
 		if (!conn || PQstatus(conn) != CONNECTION_OK)
 			ereport(ERROR,
@@ -707,7 +720,7 @@ do_sql_command_end(PGconn *conn, const char *sql, bool consume_input)
 	 */
 	if (consume_input && !PQconsumeInput(conn))
 		pgfdw_report_error(ERROR, NULL, conn, false, sql);
-	res = pgfdw_get_result(conn, sql);
+	res = pgfdw_get_result(conn);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		pgfdw_report_error(ERROR, res, conn, true, sql);
 	PQclear(res);
@@ -810,7 +823,9 @@ GetPrepStmtNumber(PGconn *conn)
 /*
  * Submit a query and wait for the result.
  *
- * This function is interruptible by signals.
+ * Since we don't use non-blocking mode, this can't process interrupts while
+ * pushing the query text to the server.  That risk is relatively small, so we
+ * ignore that for now.
  *
  * Caller is responsible for the error handling on the result.
  */
@@ -821,77 +836,20 @@ pgfdw_exec_query(PGconn *conn, const char *query, PgFdwConnState *state)
 	if (state && state->pendingAreq)
 		process_pending_request(state->pendingAreq);
 
-	/*
-	 * Submit a query.  Since we don't use non-blocking mode, this also can
-	 * block.  But its risk is relatively small, so we ignore that for now.
-	 */
 	if (!PQsendQuery(conn, query))
-		pgfdw_report_error(ERROR, NULL, conn, false, query);
-
-	/* Wait for the result. */
-	return pgfdw_get_result(conn, query);
+		return NULL;
+	return pgfdw_get_result(conn);
 }
 
 /*
- * Wait for the result from a prior asynchronous execution function call.
- *
- * This function offers quick responsiveness by checking for any interruptions.
- *
- * This function emulates PQexec()'s behavior of returning the last result
- * when there are many.
+ * Wrap libpqsrv_get_result_last(), adding wait event.
  *
  * Caller is responsible for the error handling on the result.
  */
 PGresult *
-pgfdw_get_result(PGconn *conn, const char *query)
+pgfdw_get_result(PGconn *conn)
 {
-	PGresult   *volatile last_res = NULL;
-
-	/* In what follows, do not leak any PGresults on an error. */
-	PG_TRY();
-	{
-		for (;;)
-		{
-			PGresult   *res;
-
-			while (PQisBusy(conn))
-			{
-				int			wc;
-
-				/* Sleep until there's something to do */
-				wc = WaitLatchOrSocket(MyLatch,
-									   WL_LATCH_SET | WL_SOCKET_READABLE |
-									   WL_EXIT_ON_PM_DEATH,
-									   PQsocket(conn),
-									   -1L, WAIT_EVENT_EXTENSION);
-				ResetLatch(MyLatch);
-
-				CHECK_FOR_INTERRUPTS();
-
-				/* Data available in socket? */
-				if (wc & WL_SOCKET_READABLE)
-				{
-					if (!PQconsumeInput(conn))
-						pgfdw_report_error(ERROR, NULL, conn, false, query);
-				}
-			}
-
-			res = PQgetResult(conn);
-			if (res == NULL)
-				break;			/* query is complete */
-
-			PQclear(last_res);
-			last_res = res;
-		}
-	}
-	PG_CATCH();
-	{
-		PQclear(last_res);
-		PG_RE_THROW();
-	}
-	PG_END_TRY();
-
-	return last_res;
+	return libpqsrv_get_result_last(conn, pgfdw_we_get_result);
 }
 
 /*
@@ -932,8 +890,8 @@ pgfdw_report_error(int elevel, PGresult *res, PGconn *conn,
 
 		/*
 		 * If we don't get a message from the PGresult, try the PGconn.  This
-		 * is needed because for connection-level failures, PQexec may just
-		 * return NULL, not a PGresult at all.
+		 * is needed because for connection-level failures, PQgetResult may
+		 * just return NULL, not a PGresult at all.
 		 */
 		if (message_primary == NULL)
 			message_primary = pchomp(PQerrorMessage(conn));
@@ -1033,7 +991,8 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 					 */
 					if (entry->have_prep_stmt && entry->have_error)
 					{
-						res = PQexec(entry->conn, "DEALLOCATE ALL");
+						res = pgfdw_exec_query(entry->conn, "DEALLOCATE ALL",
+											   NULL);
 						PQclear(res);
 					}
 					entry->have_prep_stmt = false;
@@ -1562,12 +1521,16 @@ pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime, PGresult **result,
 					goto exit;
 				}
 
+				/* first time, allocate or get the custom wait event */
+				if (pgfdw_we_cleanup_result == 0)
+					pgfdw_we_cleanup_result = WaitEventExtensionNew("PostgresFdwCleanupResult");
+
 				/* Sleep until there's something to do */
 				wc = WaitLatchOrSocket(MyLatch,
 									   WL_LATCH_SET | WL_SOCKET_READABLE |
 									   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 									   PQsocket(conn),
-									   cur_timeout, WAIT_EVENT_EXTENSION);
+									   cur_timeout, pgfdw_we_cleanup_result);
 				ResetLatch(MyLatch);
 
 				CHECK_FOR_INTERRUPTS();

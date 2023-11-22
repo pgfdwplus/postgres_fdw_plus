@@ -196,6 +196,7 @@ ERROR:  FATAL:  terminating connection due to administrator command
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.
+invalid socket
 SELECT split_part(query, '_', 1) FROM pg_stat_activity
     WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
    split_part   
@@ -244,6 +245,7 @@ ERROR:  FATAL:  terminating connection due to administrator command
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.
+invalid socket
 SELECT split_part(query, '_', 1) FROM pg_stat_activity
     WHERE application_name LIKE 'pgfdw_plus_loopback%' ORDER BY query;
    split_part   
@@ -473,6 +475,7 @@ ERROR:  FATAL:  terminating connection due to administrator command
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.
+invalid socket
 -- All foreign prepared transactions are resolved and xact_commits
 -- should be empty.
 SELECT status, count(*) FROM pgfdw_plus_resolve_foreign_prepared_xacts_all()
